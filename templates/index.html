@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f4f7fc">
+    <title>PACS Uploader</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <div id="nfs-connection" class="connection nfs-checking" role="status" aria-live="polite"><span class="connection-dot"></span><span id="nfs-status-text">Sprawdzam NFS…</span></div>
+      </header>
+
+      <main>
+        <section class="workspace">
+          <div class="upload-card panel">
+            <div class="section-heading">
+              <div><p class="eyebrow">NOWA PACZKA</p><h2>Dodaj pliki</h2></div>
+              <span class="step-badge">01 <i>/</i> 02</span>
+            </div>
+
+            <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Przeciągnij pliki lub katalogi tutaj albo wybierz z dysku">
+              <div class="upload-glyph" aria-hidden="true"><svg viewBox="0 0 44 44" fill="none"><path d="M22 29V10m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 25v8a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+              <strong>Przeciągnij i upuść pliki lub katalogi</strong>
+              <span>albo wybierz z urządzenia</span>
+              <div class="picker-actions">
+                <button id="choose-files" class="button button-secondary" type="button">Wybierz pliki</button>
+                <button id="choose-folder" class="button button-secondary" type="button">Wybierz katalog</button>
+              </div>
+              <small>Możesz dodać wiele plików jednocześnie</small>
+            </div>
+            <input id="file-input" type="file" multiple hidden>
+            <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+
+            <div id="selection" class="selection" hidden>
+              <div class="selection-heading"><strong id="selection-count">0 plików</strong><button id="clear-selection" class="text-button" type="button">Wyczyść</button></div>
+              <ul id="file-list" class="file-list"></ul>
+              <div class="selection-footer"><span id="selection-size">0 B</span><span class="ready-label"><span></span>Gotowe do wysłania</span></div>
+            </div>
+
+            <div id="upload-progress" class="upload-progress" hidden>
+              <div class="progress-copy"><strong>Przesyłanie na serwer</strong><span id="progress-percent">0%</span></div>
+              <div class="progress-track"><span id="progress-bar"></span></div>
+              <p id="progress-detail">Przygotowywanie plików…</p>
+            </div>
+
+            <p id="upload-message" class="message" role="status" aria-live="polite"></p>
+            <button id="upload-button" class="button button-primary upload-button" type="button" disabled>
+              <span>Dodaj do kolejki</span><span aria-hidden="true">→</span>
+            </button>
+            <p class="privacy-note"><span aria-hidden="true">⌁</span> Oryginały pozostaną tutaj do czasu potwierdzenia transferu.</p>
+          </div>
+
+          <aside class="side-column">
+            <section class="queue-card panel">
+              <div class="section-heading queue-heading">
+                <div><p class="eyebrow">AKTYWNOŚĆ</p><h2>Kolejka transferów</h2></div>
+                <span id="job-count" class="count-badge">0</span>
+              </div>
+              <div id="jobs-list" class="jobs-list"><div class="empty-state"><span class="empty-icon">↗</span><strong>Tu pojawią się Twoje paczki</strong><p>Po dodaniu plików pokażemy postęp wysyłki.</p></div></div>
+              <button id="refresh-button" class="refresh-button" type="button"><span aria-hidden="true">↻</span> Odśwież listę</button>
+            </section>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="footer"><span>PACS Uploader <span id="year"></span></span><span>Twoje pliki. Bezpieczna droga.</span></footer>
+    </div>
+
+    <div id="auth-dialog" class="auth-backdrop" hidden>
+      <form id="auth-form" class="auth-card">
+        <span class="auth-mark">↗</span>
+        <h2>Wprowadź token</h2>
+        <label class="field-label" for="token-input">Token dostępu</label>
+        <input id="token-input" class="text-input" type="password" autocomplete="current-password" required>
+        <p id="auth-error" class="message error-message" role="alert"></p>
+        <button class="button button-primary" type="submit">Połącz z serwerem <span aria-hidden="true">→</span></button>
+      </form>
+    </div>
+  </body>
+</html>
