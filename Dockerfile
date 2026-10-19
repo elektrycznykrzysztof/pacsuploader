@@ -7,7 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+# Temporary workaround for build environments that cannot validate PyPI's TLS chain.
+RUN pip install --no-cache-dir \
+        --trusted-host pypi.org \
+        --trusted-host files.pythonhosted.org \
+        -r requirements.txt \
     && groupadd --gid 10001 fileloader \
     && useradd --uid 10001 --gid fileloader --home-dir /nonexistent --shell /usr/sbin/nologin fileloader \
     && mkdir -p /data /mnt/nfs \
