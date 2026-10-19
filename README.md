@@ -24,6 +24,7 @@ Compose montuje eksport NFS jako wolumen Dockera. Jeśli NFS jest chwilowo niedo
 - Przeglądarka wysyła pliki wraz z oryginalnymi nazwami i ścieżkami względnymi, więc zachowane są nazwy oraz struktura katalogów. Na NFS trafiają pod `NFS_EXPORT/<rok>/<oryginalna-ścieżka>`, np. `/var/lib/orthancSharedMountPoint/2026/MojeBadanie/plik.dcm`.
 - Paczki są zapisywane w wolumenie `fileloader-data` i widoczne na liście transferów.
 - Worker automatycznie tworzy katalog roku, kopiuje pliki do ukrytego katalogu tymczasowego w jego obrębie, sprawdza rozmiary i SHA-256, a potem publikuje je pod oryginalnymi ścieżkami. Nie zmienia nazw ani struktury katalogów.
+- Aplikacja nadaje katalogom uprawnienia odczytu i przechodzenia dla wszystkich (`r-x`), a plikom odczyt dla wszystkich (`r--`), zachowując istniejące uprawnienia zapisu. Jeśli serwer NFS odmówi zmiany praw istniejącego katalogu lub pliku, aplikacja zapisuje ostrzeżenie i kontynuuje transfer.
 - Rok jest ustalany przy pierwszej próbie transferu według zegara systemowego kontenera i pozostaje przypisany do paczki przy ponowieniach. Nowe wysyłki po zmianie roku trafiają do nowego katalogu, np. `2027`.
 - Istniejące pliki o tej samej ścieżce nie są nadpisywane. Transfer czeka na rozwiązanie konfliktu, a lokalna kopia pozostaje na serwerze źródłowym.
 - Po restarcie worker porównuje już opublikowane pliki sumami SHA-256 i kończy transfer bez duplikowania danych. Źródłowe pliki usuwa dopiero po potwierdzeniu wszystkich plików docelowych.

@@ -113,13 +113,12 @@ class NfsMonitor(threading.Thread):
         os.statvfs(self.nfs_root)
         year_root = self.nfs_root / str(datetime.now().year)
         try:
-            year_root.mkdir(mode=0o750)
+            year_root.mkdir(mode=0o755)
         except FileExistsError:
             pass
         mode = year_root.lstat().st_mode
         if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
             raise OSError(f"Nieprawidłowy katalog roczny na NFS: {year_root}")
-
         probe = year_root / f".fileloader-health-{uuid.uuid4().hex}"
         descriptor = None
         try:
@@ -295,16 +294,36 @@ class TransferWorker(threading.Thread):
         return True
 
     def _ensure_directory(self, path):
+        created = False
         try:
             mode = path.lstat().st_mode
         except FileNotFoundError:
             try:
-                path.mkdir(mode=0o750)
+                path.mkdir(mode=0o755)
+                created = True
             except FileExistsError:
                 pass
             mode = path.lstat().st_mode
         if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
             raise RuntimeError(f"Nie można utworzyć katalogu docelowego: {path}")
+        # Add read and traversal permission for everyone while preserving
+        # existing owner/group write permissions on shared NFS directories.
+        try:
+            path.chmod(stat.S_IMODE(mode) | 0o055)
+        except PermissionError:
+            if created:
+                raise
+            logger.warning("Brak uprawnień do nadania publicznego odczytu katalogowi NFS %s", path)
+
+    def _ensure_file_readable(self, path):
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+            raise RuntimeError(f"Nie można ustawić uprawnień pliku docelowego: {path}")
+        # Add read permission for everyone, preserving existing write/execute bits.
+        try:
+            path.chmod(stat.S_IMODE(mode) | 0o044)
+        except PermissionError:
+            logger.warning("Brak uprawnień do nadania publicznego odczytu plikowi NFS %s", path)
 
     def _ensure_target_parent(self, root, parts):
         current = root
@@ -347,6 +366,7 @@ class TransferWorker(threading.Thread):
             final_path = year_root.joinpath(*parts)
             self._ensure_target_parent(year_root, parts[:-1])
             if self._target_matches(final_path, item):
+                self._ensure_file_readable(final_path)
                 continue
 
             source = payload_dir.joinpath(*parts)
@@ -369,6 +389,9 @@ class TransferWorker(threading.Thread):
             if copied != int(item["size"]) or digest.hexdigest() != item["sha256"]:
                 raise RuntimeError(f"Weryfikacja pliku nie powiodła się: {relative}")
 
+            staged_mode = staged_path.stat().st_mode
+            staged_path.chmod(stat.S_IMODE(staged_mode) | 0o044)
+
             if not self._target_matches(final_path, item):
                 try:
                     # A hard link publishes the fully verified file atomically and
@@ -379,6 +402,7 @@ class TransferWorker(threading.Thread):
                 staged_path.unlink(missing_ok=True)
             if not self._target_matches(final_path, item):
                 raise RuntimeError(f"Nie udało się potwierdzić pliku na NFS: {relative}")
+            self._ensure_file_readable(final_path)
 
         shutil.rmtree(staging)
         return year_root
