@@ -13,6 +13,38 @@
 
   byId('year').textContent = new Date().getFullYear();
 
+  function playPingPong(video) {
+    const frameStep = 1 / 24;
+    let reversing = false;
+    const play = () => video.play().catch(() => {});
+
+    video.addEventListener('ended', () => {
+      if (!Number.isFinite(video.duration) || video.duration <= frameStep) {
+        video.currentTime = 0;
+        play();
+        return;
+      }
+      reversing = true;
+      video.pause();
+      video.currentTime = Math.max(0, video.duration - frameStep);
+    });
+
+    video.addEventListener('seeked', () => {
+      if (!reversing) return;
+      if (video.currentTime <= frameStep * 1.5) {
+        reversing = false;
+        video.currentTime = 0;
+        play();
+        return;
+      }
+      video.currentTime = Math.max(0, video.currentTime - frameStep);
+    });
+
+    play();
+  }
+
+  playPingPong(byId('top-animation'));
+
   function token() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
   function headers(extra = {}) { return { ...extra, 'X-App-Token': token() }; }
   function formatBytes(value) {
