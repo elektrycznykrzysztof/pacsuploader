@@ -11,8 +11,6 @@
   const nfsConnection = byId('nfs-connection');
   const nfsStatusText = byId('nfs-status-text');
 
-  byId('year').textContent = new Date().getFullYear();
-
   function playPingPong(video) {
     const frameStep = 1 / 24;
     let reversing = false;

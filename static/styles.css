@@ -123,7 +123,6 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .refresh-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; padding: 10px 0 0; border: 0; border-top: 1px solid #edf0f5; background: none; color: #8794a7; font-size: 9px; }
 .refresh-button span { font-size: 14px; }
 .refresh-button:hover { color: var(--blue); }
-.footer { display: flex; justify-content: space-between; padding: 17px 0 22px; border-top: 1px solid rgba(34, 65, 106, .08); color: #8996a9; font-size: 9px; }
 .auth-backdrop { position: fixed; z-index: 5; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 57, .35); backdrop-filter: blur(4px); }
 .auth-backdrop[hidden] { display: none; }
 .auth-card { width: min(100%, 370px); padding: 29px; border: 1px solid #e3e9f1; border-radius: 17px; background: #fff; box-shadow: 0 24px 70px rgba(18, 38, 67, .18); }
@@ -151,7 +150,6 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
   .side-column { grid-template-columns: 1fr; }
   .queue-card { padding: 21px 17px 14px; }
   .queue-card { max-height: 65vh; max-height: 65dvh; }
-  .footer { gap: 12px; font-size: 8px; }
 }
 @media (max-height: 500px) {
   .queue-card { max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); }
