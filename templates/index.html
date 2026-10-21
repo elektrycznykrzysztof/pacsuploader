@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=4">
+    <link rel="stylesheet" href="/static/styles.css?v=5">
     <script src="/static/app.js?v=5" defer></script>
   </head>
   <body>
@@ -27,6 +27,7 @@
               <div><p class="eyebrow">NOWA PACZKA</p><h2>Dodaj pliki</h2></div>
               <span class="step-badge">01 <i>/</i> 02</span>
             </div>
+            <p class="filename-rule"><strong>Nazwa pliku musi być w formie:</strong> <code>Imie_Nazwisko_PESEL</code> (z rozszerzeniem .jpg, .jpeg, .png lub .pdf).</p>
 
             <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Przeciągnij pliki lub katalogi tutaj albo wybierz z dysku">
               <div class="upload-glyph" aria-hidden="true"><svg viewBox="0 0 44 44" fill="none"><path d="M22 29V10m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 25v8a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
@@ -38,7 +39,7 @@
               </div>
               <small>Możesz dodać wiele plików jednocześnie</small>
             </div>
-            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) zostaną przekonwertowane do DICOM; PDF pozostanie w nim osadzony. Nazwa: <strong>Imię_Nazwisko_PESEL.png/.jpg/.jpeg/.pdf</strong> (akceptujemy też podwójne podkreślenia lub spacje). PESEL musi mieć 11 cyfr, poprawną sumę kontrolną i datę. Do nazwy DICOM dodamy timestamp uploadu; timestamp w nazwie źródłowej pominiemy przy odczycie danych pacjenta.</p>
+            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM; PDF pozostaje w nim osadzony. Akceptujemy też podwójne podkreślenia lub spacje jako separatory. PESEL musi mieć 11 cyfr, poprawną sumę kontrolną i datę. Do nazwy DICOM dodajemy timestamp uploadu.</p>
             <input id="file-input" type="file" multiple hidden>
             <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
 
