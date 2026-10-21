@@ -98,10 +98,18 @@ def image_metadata_for_path(relative_path):
     if not expected_format:
         return None
 
-    parts = path.stem.split("__")
+    stem = path.stem
+    if "__" in stem:
+        parts = stem.split("__")
+    elif stem.count("_") == 2:
+        parts = stem.split("_")
+    elif len(stem.split()) == 3:
+        parts = stem.split()
+    else:
+        parts = []
     if len(parts) != 3:
         raise UploadValidationError(
-            f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL.{path.suffix.lower()}."
+            f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL{path.suffix.lower()}."
         )
     given_name, family_name, pesel = (part.strip() for part in parts)
     if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
