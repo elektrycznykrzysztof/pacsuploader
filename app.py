@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import stat
+import struct
 import sys
 import tempfile
 import threading
@@ -18,7 +19,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from flask import Flask, jsonify, render_template, request
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydicom.dataset import FileDataset, FileMetaDataset
-from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
+from pydicom.uid import EncapsulatedPDFStorage, ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
 from werkzeug.exceptions import RequestEntityTooLarge
 
 
@@ -29,6 +30,8 @@ logging.basicConfig(
 logger = logging.getLogger("fileloader")
 
 IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}
+DOCUMENT_FORMATS = {".pdf": "PDF"}
+UPLOAD_TIMESTAMP_SUFFIX = re.compile(r"_{1,2}[0-9]{8}T[0-9]{6}(?:[0-9]{6})?$")
 IMPLEMENTATION_CLASS_UID = generate_uid()
 
 
@@ -92,13 +95,25 @@ def valid_pesel(value):
     return False
 
 
-def image_metadata_for_path(relative_path):
+def strip_upload_timestamp(stem):
+    return UPLOAD_TIMESTAMP_SUFFIX.sub("", stem)
+
+
+def timestamped_dicom_path(relative_path, timestamp):
     path = PurePosixPath(relative_path)
-    expected_format = IMAGE_FORMATS.get(path.suffix.lower())
-    if not expected_format:
+    original_stem = strip_upload_timestamp(path.stem)
+    return str(path.with_name(f"{original_stem}_{timestamp}.dcm"))
+
+
+def patient_metadata_for_path(relative_path):
+    path = PurePosixPath(relative_path)
+    extension = path.suffix.lower()
+    expected_format = IMAGE_FORMATS.get(extension)
+    document_format = DOCUMENT_FORMATS.get(extension)
+    if not expected_format and not document_format:
         return None
 
-    stem = path.stem
+    stem = strip_upload_timestamp(path.stem)
     if "__" in stem:
         parts = stem.split("__")
     elif stem.count("_") == 2:
@@ -108,8 +123,12 @@ def image_metadata_for_path(relative_path):
     else:
         parts = []
     if len(parts) != 3:
+        if document_format:
+            expected_name = f"Pliki PDF muszą mieć nazwę Imię__Nazwisko__PESEL{extension}."
+        else:
+            expected_name = f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL{extension}."
         raise UploadValidationError(
-            f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL{path.suffix.lower()}."
+            expected_name
         )
     given_name, family_name, pesel = (part.strip() for part in parts)
     if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
@@ -117,15 +136,107 @@ def image_metadata_for_path(relative_path):
     if len(given_name) + len(family_name) + 1 > 64:
         raise UploadValidationError("Imię lub nazwisko w nazwie pliku jest zbyt długie.")
     if not valid_pesel(pesel):
-        raise UploadValidationError("PESEL w nazwie pliku jest nieprawidłowy.")
+        raise UploadValidationError("PESEL w nazwie pliku musi mieć 11 cyfr i prawidłową sumę kontrolną oraz datę.")
 
     return {
         "expected_format": expected_format,
+        "document_format": document_format,
+        "kind": "pdf" if document_format else "image",
         "given_name": given_name,
         "family_name": family_name,
         "patient_id": pesel,
         "patient_name": f"{family_name}^{given_name}",
     }
+
+
+def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, instance_number, study_datetime):
+    source_path = Path(source_path)
+    destination_path = Path(destination_path)
+    try:
+        source_size = source_path.stat().st_size
+        with source_path.open("rb") as source_file:
+            if source_file.read(5) != b"%PDF-":
+                raise UploadValidationError("Plik z rozszerzeniem PDF nie ma prawidłowego nagłówka PDF.")
+        if source_size == 0:
+            raise UploadValidationError("Plik PDF jest pusty.")
+        # Explicit VR OB values have a 32-bit length field; leave an even byte
+        # available for DICOM padding when the source document has odd length.
+        if source_size > 0xFFFFFFFE:
+            raise UploadValidationError("Plik PDF jest zbyt duży dla formatu DICOM (maksymalnie 4 GiB).")
+    except UploadValidationError:
+        raise
+    except OSError:
+        raise UploadValidationError("Nie udało się odczytać pliku PDF.") from None
+
+    now = study_datetime
+    sop_instance_uid = generate_uid()
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = EncapsulatedPDFStorage
+    file_meta.MediaStorageSOPInstanceUID = sop_instance_uid
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = IMPLEMENTATION_CLASS_UID
+    file_meta.ImplementationVersionName = "PACS_UPLOADER_1"
+
+    dataset = FileDataset(str(destination_path), {}, file_meta=file_meta, preamble=b"\0" * 128)
+    dataset.SpecificCharacterSet = "ISO_IR 192"
+    dataset.SOPClassUID = EncapsulatedPDFStorage
+    dataset.SOPInstanceUID = sop_instance_uid
+    dataset.PatientName = metadata["patient_name"]
+    dataset.PatientID = metadata["patient_id"]
+    dataset.PatientBirthDate = ""
+    dataset.PatientSex = ""
+    dataset.StudyInstanceUID = study_uid
+    dataset.StudyDate = now.strftime("%Y%m%d")
+    dataset.StudyTime = now.strftime("%H%M%S.%f")
+    dataset.AccessionNumber = ""
+    dataset.ReferringPhysicianName = ""
+    dataset.StudyID = ""
+    dataset.StudyDescription = "Dokument PDF"
+    dataset.Modality = "DOC"
+    dataset.SeriesInstanceUID = series_uid
+    dataset.SeriesNumber = "1"
+    dataset.InstanceNumber = str(instance_number)
+    dataset.ContentDate = now.strftime("%Y%m%d")
+    dataset.ContentTime = now.strftime("%H%M%S.%f")
+    dataset.AcquisitionDateTime = now.strftime("%Y%m%d%H%M%S.%f")
+    dataset.BurnedInAnnotation = "YES"
+    dataset.DocumentTitle = "Dokument PDF"
+    dataset.Manufacturer = "PACS Uploader"
+    dataset.ManufacturerModelName = "PACS Uploader"
+    dataset.SoftwareVersions = "1"
+    dataset.ConversionType = "DI"
+
+    try:
+        # Write the DICOM metadata first, then stream the PDF into its OB value.
+        # This avoids loading large source documents into memory.
+        dataset.save_as(str(destination_path), enforce_file_format=True)
+        value_length = source_size + (source_size % 2)
+        with destination_path.open("ab") as dicom_file, source_path.open("rb") as source_file:
+            dicom_file.write(struct.pack("<HH2s2sI", 0x0042, 0x0011, b"OB", b"\0\0", value_length))
+            copied = 0
+            while True:
+                chunk = source_file.read(1024 * 1024)
+                if not chunk:
+                    break
+                dicom_file.write(chunk)
+                copied += len(chunk)
+            if copied != source_size:
+                raise OSError("Rozmiar pliku PDF zmienił się podczas konwersji.")
+            if source_size % 2:
+                dicom_file.write(b"\0")
+            mime_value = b"application/pdf"
+            if len(mime_value) % 2:
+                mime_value += b" "
+            dicom_file.write(struct.pack("<HH2sH", 0x0042, 0x0012, b"LO", len(mime_value)))
+            dicom_file.write(mime_value)
+            dicom_file.write(struct.pack("<HH2sI", 0x0042, 0x0015, b"UL", 4))
+            dicom_file.write(struct.pack("<I", source_size))
+            dicom_file.flush()
+            os.fsync(dicom_file.fileno())
+    except UploadValidationError:
+        raise
+    except (OSError, ValueError, TypeError, struct.error):
+        raise UploadValidationError("Nie udało się utworzyć pliku DICOM z dokumentu PDF.") from None
 
 
 def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, instance_number, study_datetime):
@@ -195,6 +306,7 @@ def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, s
     dataset.ImageType = ["DERIVED", "SECONDARY"]
     dataset.ContentDate = now.strftime("%Y%m%d")
     dataset.ContentTime = now.strftime("%H%M%S.%f")
+    dataset.AcquisitionDateTime = now.strftime("%Y%m%d%H%M%S.%f")
     dataset.ConversionType = "DI"
     dataset.SecondaryCaptureDeviceManufacturer = "PACS Uploader"
 
@@ -662,6 +774,8 @@ def create_app():
 
     @app.post("/api/upload")
     def upload():
+        upload_datetime = datetime.now()
+        upload_timestamp = upload_datetime.strftime("%Y%m%dT%H%M%S%f")
         uploaded_files = request.files.getlist("files")
         raw_paths = request.form.getlist("paths")
         if not uploaded_files:
@@ -683,11 +797,16 @@ def create_app():
 
         prepared_files = []
         patient_contexts = {}
+        series_contexts = {}
         patient_instance_counts = {}
         try:
             for relative in relative_paths:
-                metadata = image_metadata_for_path(relative)
-                output_path = str(PurePosixPath(relative).with_suffix(".dcm")) if metadata else relative
+                metadata = patient_metadata_for_path(relative)
+                output_path = timestamped_dicom_path(relative, upload_timestamp) if metadata else relative
+                try:
+                    output_path = normalized_relative_path(output_path)
+                except ValueError:
+                    raise UploadValidationError("Po dodaniu timestampu ścieżka pliku jest zbyt długa.") from None
                 prepared = {"input_path": relative, "output_path": output_path, "metadata": metadata}
                 if metadata:
                     patient_id = metadata["patient_id"]
@@ -698,15 +817,19 @@ def create_app():
                         context = {
                             "patient_name": metadata["patient_name"],
                             "study_uid": generate_uid(),
-                            "series_uid": generate_uid(),
-                            "study_datetime": datetime.now(),
+                            "study_datetime": upload_datetime,
                         }
                         patient_contexts[patient_id] = context
-                    patient_instance_counts[patient_id] = patient_instance_counts.get(patient_id, 0) + 1
+                    series_key = (patient_id, metadata["kind"])
+                    if series_key not in series_contexts:
+                        series_contexts[series_key] = {"series_uid": generate_uid()}
+                    series_context = series_contexts[series_key]
+                    instance_key = (patient_id, metadata["kind"])
+                    patient_instance_counts[instance_key] = patient_instance_counts.get(instance_key, 0) + 1
                     prepared["study_uid"] = context["study_uid"]
-                    prepared["series_uid"] = context["series_uid"]
+                    prepared["series_uid"] = series_context["series_uid"]
                     prepared["study_datetime"] = context["study_datetime"]
-                    prepared["instance_number"] = patient_instance_counts[patient_id]
+                    prepared["instance_number"] = patient_instance_counts[instance_key]
                 prepared_files.append(prepared)
         except UploadValidationError as error:
             return jsonify({"error": str(error)}), 400
@@ -724,7 +847,8 @@ def create_app():
         payload_dir = job_dir / "payload"
         source_dir = job_dir / "sources"
         payload_dir.mkdir(parents=True, exist_ok=False)
-        converted_count = sum(item["metadata"] is not None for item in prepared_files)
+        converted_images = sum(item["metadata"] and item["metadata"]["kind"] == "image" for item in prepared_files)
+        converted_documents = sum(item["metadata"] and item["metadata"]["kind"] == "pdf" for item in prepared_files)
         stored_files = []
         total_bytes = 0
         try:
@@ -747,7 +871,8 @@ def create_app():
                             output.write(chunk)
                         output.flush()
                         os.fsync(output.fileno())
-                    convert_image_to_dicom(
+                    converter = convert_pdf_to_dicom if metadata["kind"] == "pdf" else convert_image_to_dicom
+                    converter(
                         source_path,
                         output_path,
                         metadata,
@@ -789,7 +914,8 @@ def create_app():
                 "next_attempt_at": None,
                 "destination": None,
                 "total_bytes": total_bytes,
-                "converted_images": converted_count,
+                "converted_images": converted_images,
+                "converted_documents": converted_documents,
                 "files": stored_files,
             }
             atomic_write_json(job_dir / "job.json", job)

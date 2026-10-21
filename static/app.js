@@ -264,8 +264,12 @@
         byId('progress-percent').textContent = '100%';
         byId('progress-detail').textContent = 'Paczka jest już na serwerze i czeka na transfer.';
         const convertedImages = Number(body.job?.converted_images || 0);
-        showMessage(convertedImages
-          ? `Paczka dodana do kolejki. Obrazy PNG/JPEG przekonwertowane do DICOM: ${convertedImages}.`
+        const convertedDocuments = Number(body.job?.converted_documents || 0);
+        const conversions = [];
+        if (convertedImages) conversions.push(`obrazy PNG/JPEG: ${convertedImages}`);
+        if (convertedDocuments) conversions.push(`dokumenty PDF: ${convertedDocuments}`);
+        showMessage(conversions.length
+          ? `Paczka dodana do kolejki. Pliki przekonwertowane do DICOM (${conversions.join(', ')}).`
           : 'Paczka została dodana do kolejki transferów.');
         await refreshJobs();
         window.setTimeout(() => { byId('upload-progress').hidden = true; }, 2200);
