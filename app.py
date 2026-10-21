@@ -205,6 +205,7 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
     dataset.ManufacturerModelName = "PACS Uploader"
     dataset.SoftwareVersions = "1"
     dataset.ConversionType = "DI"
+    dataset.SecondaryCaptureDeviceManufacturer = "PACS Uploader"
 
     try:
         # Write the DICOM metadata first, then stream the PDF into its OB value.
@@ -229,7 +230,8 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
                 mime_value += b" "
             dicom_file.write(struct.pack("<HH2sH", 0x0042, 0x0012, b"LO", len(mime_value)))
             dicom_file.write(mime_value)
-            dicom_file.write(struct.pack("<HH2sI", 0x0042, 0x0015, b"UL", 4))
+            # UL is a short explicit-VR type: its value length is 16-bit.
+            dicom_file.write(struct.pack("<HH2sH", 0x0042, 0x0015, b"UL", 4))
             dicom_file.write(struct.pack("<I", source_size))
             dicom_file.flush()
             os.fsync(dicom_file.fileno())
