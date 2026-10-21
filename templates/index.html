@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=3">
-    <script src="/static/app.js?v=3" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=4">
+    <script src="/static/app.js?v=4" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -38,6 +38,7 @@
               </div>
               <small>Możesz dodać wiele plików jednocześnie</small>
             </div>
+            <p class="format-note">PNG/JPEG zostaną przekonwertowane do DICOM. Nazwa: <strong>Imię__Nazwisko__PESEL.png/.jpg/.jpeg</strong> (PESEL: 11 cyfr z poprawną sumą kontrolną).</p>
             <input id="file-input" type="file" multiple hidden>
             <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
 

@@ -6,14 +6,19 @@ import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+import warnings
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from flask import Flask, jsonify, render_template, request
+from PIL import Image, ImageOps, UnidentifiedImageError
+from pydicom.dataset import FileDataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
 from werkzeug.exceptions import RequestEntityTooLarge
 
 
@@ -22,6 +27,13 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger("fileloader")
+
+IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}
+IMPLEMENTATION_CLASS_UID = generate_uid()
+
+
+class UploadValidationError(Exception):
+    """An uploaded file is valid HTTP input but cannot be accepted by this app."""
 
 
 def utc_now():
@@ -56,6 +68,156 @@ def normalized_relative_path(raw_path):
     if any(any(ord(char) < 32 for char in part) for part in pieces):
         raise ValueError("Ścieżka zawiera niedozwolone znaki.")
     return "/".join(pieces)
+
+
+def valid_pesel(value):
+    if not re.fullmatch(r"[0-9]{11}", value):
+        return False
+    weights = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
+    checksum = (10 - sum(int(digit) * weight for digit, weight in zip(value[:10], weights)) % 10) % 10
+    if checksum != int(value[10]):
+        return False
+
+    year = int(value[:2])
+    encoded_month = int(value[2:4])
+    day = int(value[4:6])
+    for offset, century in ((80, 1800), (0, 1900), (20, 2000), (40, 2100), (60, 2200)):
+        month = encoded_month - offset
+        if 1 <= month <= 12:
+            try:
+                date(century + year, month, day)
+                return True
+            except ValueError:
+                return False
+    return False
+
+
+def image_metadata_for_path(relative_path):
+    path = PurePosixPath(relative_path)
+    expected_format = IMAGE_FORMATS.get(path.suffix.lower())
+    if not expected_format:
+        return None
+
+    parts = path.stem.split("__")
+    if len(parts) != 3:
+        raise UploadValidationError(
+            f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL.{path.suffix.lower()}."
+        )
+    given_name, family_name, pesel = (part.strip() for part in parts)
+    if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
+        raise UploadValidationError("Imię i nazwisko w nazwie pliku są nieprawidłowe.")
+    if len(given_name) + len(family_name) + 1 > 64:
+        raise UploadValidationError("Imię lub nazwisko w nazwie pliku jest zbyt długie.")
+    if not valid_pesel(pesel):
+        raise UploadValidationError("PESEL w nazwie pliku jest nieprawidłowy.")
+
+    return {
+        "expected_format": expected_format,
+        "given_name": given_name,
+        "family_name": family_name,
+        "patient_id": pesel,
+        "patient_name": f"{family_name}^{given_name}",
+    }
+
+
+def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, instance_number, study_datetime):
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(source_path) as source:
+                if source.format != metadata["expected_format"]:
+                    raise UploadValidationError("Rozszerzenie pliku nie odpowiada jego formatowi PNG/JPEG.")
+                if getattr(source, "n_frames", 1) != 1:
+                    raise UploadValidationError("Animowane i wieloklatkowe obrazy PNG/JPEG nie są obsługiwane.")
+                source.load()
+                image = ImageOps.exif_transpose(source)
+                has_alpha = "A" in image.getbands() or "transparency" in image.info
+                if has_alpha:
+                    rgba = image.convert("RGBA")
+                    background = Image.new("RGB", rgba.size, (255, 255, 255))
+                    background.paste(rgba, mask=rgba.getchannel("A"))
+                    image = background
+                elif image.mode in ("I;16", "I;16B", "I;16L"):
+                    image = image.convert("I;16")
+                elif image.mode == "I":
+                    minimum, maximum = image.getextrema()
+                    if minimum < 0 or maximum > 65535:
+                        raise UploadValidationError("Obraz zawiera nieobsługiwany zakres wartości pikseli.")
+                    image = image.convert("I;16")
+                elif image.mode in ("1", "L"):
+                    image = image.convert("L")
+                elif image.mode == "F":
+                    raise UploadValidationError("Obraz zawiera nieobsługiwany format pikseli zmiennoprzecinkowych.")
+                else:
+                    image = image.convert("RGB")
+    except UploadValidationError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise UploadValidationError("Nie udało się odczytać obrazu PNG/JPEG lub jego rozmiar jest zbyt duży.") from None
+
+    now = study_datetime
+    sop_instance_uid = generate_uid()
+    file_meta = FileMetaDataset()
+    file_meta.MediaStorageSOPClassUID = SecondaryCaptureImageStorage
+    file_meta.MediaStorageSOPInstanceUID = sop_instance_uid
+    file_meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    file_meta.ImplementationClassUID = IMPLEMENTATION_CLASS_UID
+    file_meta.ImplementationVersionName = "PACS_UPLOADER_1"
+
+    dataset = FileDataset(str(destination_path), {}, file_meta=file_meta, preamble=b"\0" * 128)
+    dataset.SpecificCharacterSet = "ISO_IR 192"
+    dataset.SOPClassUID = SecondaryCaptureImageStorage
+    dataset.SOPInstanceUID = sop_instance_uid
+    dataset.PatientName = metadata["patient_name"]
+    dataset.PatientID = metadata["patient_id"]
+    dataset.PatientBirthDate = ""
+    dataset.PatientSex = ""
+    dataset.StudyInstanceUID = study_uid
+    dataset.StudyDate = now.strftime("%Y%m%d")
+    dataset.StudyTime = now.strftime("%H%M%S.%f")
+    dataset.AccessionNumber = ""
+    dataset.ReferringPhysicianName = ""
+    dataset.StudyID = ""
+    dataset.StudyDescription = "Konwersja obrazu PNG/JPEG"
+    dataset.Modality = "OT"
+    dataset.SeriesInstanceUID = series_uid
+    dataset.SeriesNumber = "1"
+    dataset.AcquisitionNumber = "1"
+    dataset.InstanceNumber = str(instance_number)
+    dataset.ImageType = ["DERIVED", "SECONDARY"]
+    dataset.ContentDate = now.strftime("%Y%m%d")
+    dataset.ContentTime = now.strftime("%H%M%S.%f")
+    dataset.ConversionType = "DI"
+    dataset.SecondaryCaptureDeviceManufacturer = "PACS Uploader"
+
+    if image.mode in ("L", "I;16"):
+        dataset.SamplesPerPixel = 1
+        dataset.PhotometricInterpretation = "MONOCHROME2"
+        pixel_data = image.tobytes()
+        if image.mode == "I;16" and sys.byteorder == "big":
+            pixel_data = b"".join(pixel_data[index:index + 2][::-1] for index in range(0, len(pixel_data), 2))
+    else:
+        dataset.SamplesPerPixel = 3
+        dataset.PhotometricInterpretation = "RGB"
+        dataset.PlanarConfiguration = 0
+        pixel_data = image.tobytes()
+
+    dataset.Rows, dataset.Columns = image.height, image.width
+    bits_allocated = 16 if image.mode == "I;16" else 8
+    dataset.BitsAllocated = bits_allocated
+    dataset.BitsStored = bits_allocated
+    dataset.HighBit = bits_allocated - 1
+    dataset.PixelRepresentation = 0
+    if len(pixel_data) % 2:
+        pixel_data += b"\0"
+    dataset.PixelData = pixel_data
+    if metadata["expected_format"] == "JPEG":
+        dataset.LossyImageCompression = "01"
+        dataset.LossyImageCompressionMethod = "ISO_10918_1"
+    try:
+        dataset.save_as(str(destination_path), enforce_file_format=True)
+    except (OSError, ValueError, TypeError):
+        raise UploadValidationError("Nie udało się utworzyć pliku DICOM dla obrazu.") from None
 
 
 def mount_type_for(path, mountinfo_path="/proc/self/mountinfo"):
@@ -204,8 +366,9 @@ class TransferWorker(threading.Thread):
                 job["next_attempt_at"] = None
                 job["updated_at"] = utc_now()
                 payload_dir = job_dir / "payload"
-                if payload_dir.exists():
-                    shutil.rmtree(payload_dir)
+                for retained_dir in (payload_dir, job_dir / "sources"):
+                    if retained_dir.exists():
+                        shutil.rmtree(retained_dir)
                 self._save_job(job_dir, job)
                 logger.info("Paczka %s została wysłana do %s", job["id"], destination)
             except Exception as error:  # Keep source files and retry after a delay.
@@ -348,9 +511,9 @@ class TransferWorker(threading.Thread):
         # Finish cleanup for a transfer completed by an older application version.
         legacy_destination = self._destination(job)
         if self._is_completed(legacy_destination, job):
-            payload_dir = job_dir / "payload"
-            if payload_dir.exists():
-                shutil.rmtree(payload_dir)
+            for retained_dir in (job_dir / "payload", job_dir / "sources"):
+                if retained_dir.exists():
+                    shutil.rmtree(retained_dir)
             return legacy_destination
 
         staging = year_root / f".fileloader-{job['id']}.partial"
@@ -506,37 +669,106 @@ def create_app():
             relative_paths = [normalized_relative_path(value) for value in raw_paths]
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-        path_set = {tuple(PurePosixPath(value).parts) for value in relative_paths}
-        if len(path_set) != len(relative_paths):
+        input_path_set = {tuple(PurePosixPath(value).parts) for value in relative_paths}
+        if len(input_path_set) != len(relative_paths):
             return jsonify({"error": "Paczka zawiera powtórzone ścieżki plików."}), 400
-        for parts in path_set:
-            if any(parts[:index] in path_set for index in range(1, len(parts))):
-                return jsonify({"error": "Ścieżka pliku koliduje z katalogiem w paczce."}), 400
+
+        prepared_files = []
+        patient_contexts = {}
+        patient_instance_counts = {}
+        try:
+            for relative in relative_paths:
+                metadata = image_metadata_for_path(relative)
+                output_path = str(PurePosixPath(relative).with_suffix(".dcm")) if metadata else relative
+                prepared = {"input_path": relative, "output_path": output_path, "metadata": metadata}
+                if metadata:
+                    patient_id = metadata["patient_id"]
+                    context = patient_contexts.get(patient_id)
+                    if context and context["patient_name"] != metadata["patient_name"]:
+                        raise UploadValidationError("Pliki z tym samym PESEL muszą zawierać takie samo imię i nazwisko.")
+                    if not context:
+                        context = {
+                            "patient_name": metadata["patient_name"],
+                            "study_uid": generate_uid(),
+                            "series_uid": generate_uid(),
+                            "study_datetime": datetime.now(),
+                        }
+                        patient_contexts[patient_id] = context
+                    patient_instance_counts[patient_id] = patient_instance_counts.get(patient_id, 0) + 1
+                    prepared["study_uid"] = context["study_uid"]
+                    prepared["series_uid"] = context["series_uid"]
+                    prepared["study_datetime"] = context["study_datetime"]
+                    prepared["instance_number"] = patient_instance_counts[patient_id]
+                prepared_files.append(prepared)
+        except UploadValidationError as error:
+            return jsonify({"error": str(error)}), 400
+
+        output_path_set = {tuple(PurePosixPath(item["output_path"]).parts) for item in prepared_files}
+        if len(output_path_set) != len(prepared_files):
+            return jsonify({"error": "Po konwersji pliki miałyby powtarzające się ścieżki docelowe."}), 400
+        for path_set in (input_path_set, output_path_set):
+            for parts in path_set:
+                if any(parts[:index] in path_set for index in range(1, len(parts))):
+                    return jsonify({"error": "Ścieżka pliku koliduje z katalogiem w paczce."}), 400
 
         job_id = uuid.uuid4().hex
         job_dir = incoming_root / job_id
         payload_dir = job_dir / "payload"
+        source_dir = job_dir / "sources"
         payload_dir.mkdir(parents=True, exist_ok=False)
+        converted_count = sum(item["metadata"] is not None for item in prepared_files)
         stored_files = []
         total_bytes = 0
         try:
-            for uploaded, relative in zip(uploaded_files, relative_paths):
-                target = payload_dir.joinpath(*PurePosixPath(relative).parts)
-                target.parent.mkdir(parents=True, exist_ok=True)
+            for uploaded, prepared in zip(uploaded_files, prepared_files):
+                original_relative = prepared["input_path"]
+                output_relative = prepared["output_path"]
+                metadata = prepared["metadata"]
+                output_path = payload_dir.joinpath(*PurePosixPath(output_relative).parts)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                if metadata:
+                    source_path = source_dir.joinpath(*PurePosixPath(original_relative).parts)
+                    source_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    with source_path.open("xb") as output:
+                        os.fchmod(output.fileno(), 0o600)
+                        while True:
+                            chunk = uploaded.stream.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    convert_image_to_dicom(
+                        source_path,
+                        output_path,
+                        metadata,
+                        prepared["study_uid"],
+                        prepared["series_uid"],
+                        prepared["instance_number"],
+                        prepared["study_datetime"],
+                    )
+                else:
+                    with output_path.open("wb") as output:
+                        while True:
+                            chunk = uploaded.stream.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                        output.flush()
+                        os.fsync(output.fileno())
+
                 digest = hashlib.sha256()
                 size = 0
-                with target.open("wb") as output:
+                with output_path.open("rb") as saved_file:
                     while True:
-                        chunk = uploaded.stream.read(1024 * 1024)
+                        chunk = saved_file.read(1024 * 1024)
                         if not chunk:
                             break
-                        output.write(chunk)
                         digest.update(chunk)
                         size += len(chunk)
-                    output.flush()
-                    os.fsync(output.fileno())
                 total_bytes += size
-                stored_files.append({"path": relative, "size": size, "sha256": digest.hexdigest()})
+                stored_files.append({"path": output_relative, "size": size, "sha256": digest.hexdigest()})
 
             job = {
                 "id": job_id,
@@ -549,12 +781,16 @@ def create_app():
                 "next_attempt_at": None,
                 "destination": None,
                 "total_bytes": total_bytes,
+                "converted_images": converted_count,
                 "files": stored_files,
             }
             atomic_write_json(job_dir / "job.json", job)
             final_job_dir = jobs_root / job_id
             os.replace(job_dir, final_job_dir)
             return jsonify({"job": job}), 201
+        except UploadValidationError as error:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            return jsonify({"error": str(error)}), 400
         except Exception:
             shutil.rmtree(job_dir, ignore_errors=True)
             raise

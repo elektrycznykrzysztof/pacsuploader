@@ -63,6 +63,8 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .button-secondary { min-height: 32px; border: 1px solid #dfe7f1; background: #fff; color: #3d506b; font-size: 10px; }
 .button-secondary:hover { background: #f1f5fb; border-color: #c8d5e8; }
 .drop-zone > small { margin-top: 11px; color: #97a3b4; font-size: 9px; }
+.format-note { margin: 10px 2px 0; color: #78869a; font-size: 9px; line-height: 1.5; }
+.format-note strong { color: #526986; font-weight: 700; }
 .selection { margin-top: 15px; border: 1px solid #e5eaf1; border-radius: 10px; overflow: hidden; }
 .selection-heading, .selection-footer { min-height: 37px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px; background: #fafbfd; }
 .selection-heading { border-bottom: 1px solid #edf0f5; }

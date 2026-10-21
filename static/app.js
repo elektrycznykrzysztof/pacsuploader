@@ -263,7 +263,10 @@
         byId('progress-bar').style.width = '100%';
         byId('progress-percent').textContent = '100%';
         byId('progress-detail').textContent = 'Paczka jest już na serwerze i czeka na transfer.';
-        showMessage('Paczka została dodana do kolejki transferów.');
+        const convertedImages = Number(body.job?.converted_images || 0);
+        showMessage(convertedImages
+          ? `Paczka dodana do kolejki. Obrazy PNG/JPEG przekonwertowane do DICOM: ${convertedImages}.`
+          : 'Paczka została dodana do kolejki transferów.');
         await refreshJobs();
         window.setTimeout(() => { byId('upload-progress').hidden = true; }, 2200);
       }
