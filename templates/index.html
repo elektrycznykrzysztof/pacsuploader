@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=5">
-    <script src="/static/app.js?v=5" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=6">
+    <script src="/static/app.js?v=6" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -27,7 +27,7 @@
               <div><p class="eyebrow">NOWA PACZKA</p><h2>Dodaj pliki</h2></div>
               <span class="step-badge">01 <i>/</i> 02</span>
             </div>
-            <p class="filename-rule"><strong>Nazwa pliku musi być w formie:</strong> <code>Imie_Nazwisko_PESEL_Nazwaurzadzenia</code> (z rozszerzeniem .jpg, .jpeg, .png lub .pdf).</p>
+            <p class="filename-rule">Nazwa pliku jest dowolna. Po dodaniu obrazów PNG/JPEG lub PDF uzupełnij dane badania.</p>
 
             <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Przeciągnij pliki lub katalogi tutaj albo wybierz z dysku">
               <div class="upload-glyph" aria-hidden="true"><svg viewBox="0 0 44 44" fill="none"><path d="M22 29V10m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 25v8a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
@@ -39,7 +39,7 @@
               </div>
               <small>Możesz dodać wiele plików jednocześnie</small>
             </div>
-            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM; PDF pozostaje w nim osadzony. Ostatni segment nazwy zapisujemy w polu Modality (np. CT, MR, US). Akceptujemy też podwójne podkreślenia lub spacje jako separatory. PESEL musi mieć 11 cyfr, poprawną sumę kontrolną i datę. Do nazwy DICOM dodajemy timestamp uploadu.</p>
+            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM. Wprowadzone dane badania dotyczą wszystkich takich plików w paczce. Zwykłe pliki są przesyłane bez konwersji.</p>
             <input id="file-input" type="file" multiple hidden>
             <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
 
@@ -85,6 +85,28 @@
         <input id="token-input" class="text-input" type="password" autocomplete="current-password" required>
         <p id="auth-error" class="message error-message" role="alert"></p>
         <button class="button button-primary" type="submit">Połącz z serwerem <span aria-hidden="true">→</span></button>
+      </form>
+    </div>
+
+    <div id="study-dialog" class="study-backdrop" hidden>
+      <form id="study-form" class="study-card">
+        <div class="study-heading">
+          <div><p class="eyebrow">DANE DICOM</p><h2>Uzupełnij dane badania</h2></div>
+          <button id="study-cancel" class="text-button study-close" type="button" aria-label="Zamknij">×</button>
+        </div>
+        <p class="study-note">Te dane zostaną użyte dla wszystkich obrazów PNG/JPEG i dokumentów PDF w tej paczce. Nazwa pliku nie ma wpływu na metadane.</p>
+        <div class="study-fields">
+          <div><label class="field-label" for="study-first-name">Imię</label><input id="study-first-name" name="first_name" class="text-input" autocomplete="given-name" required maxlength="64"></div>
+          <div><label class="field-label" for="study-last-name">Nazwisko</label><input id="study-last-name" name="last_name" class="text-input" autocomplete="family-name" required maxlength="64"></div>
+          <div><label class="field-label" for="study-pesel">PESEL</label><input id="study-pesel" name="patient_id" class="text-input" inputmode="numeric" autocomplete="off" required minlength="11" maxlength="11" pattern="[0-9]{11}"><small>11 cyfr z prawidłową datą i sumą kontrolną.</small></div>
+          <div><label class="field-label" for="study-exam-type">Rodzaj badania</label><input id="study-exam-type" name="exam_type" class="text-input" required maxlength="61"></div>
+          <div><label class="field-label" for="study-laterality">Strona</label><select id="study-laterality" name="laterality" class="text-input" required><option value="" selected disabled>Wybierz stronę</option><option value="OP">OP</option><option value="OL">OL</option><option value="OU">OU</option></select></div>
+          <div><label class="field-label" for="study-device">Nazwa urządzenia</label><input id="study-device" name="device_name" class="text-input" required maxlength="16" pattern="[A-Za-z0-9_ ]{1,16}" title="Maksymalnie 16 znaków: litery łacińskie, cyfry, spacje lub podkreślenia"><small>Zapiszemy ją w polu Modality (do 16 znaków).</small></div>
+          <div class="study-date-field"><label class="field-label" for="study-date">Data badania</label><input id="study-date" name="study_date" class="text-input" type="date" required><small>Domyślnie data modyfikacji pliku; możesz ją zmienić.</small></div>
+        </div>
+        <input id="study-time" name="study_time" type="hidden">
+        <p id="study-error" class="message error-message" role="alert"></p>
+        <div class="study-actions"><button id="study-cancel-bottom" class="button button-secondary" type="button">Anuluj</button><button id="study-submit" class="button button-primary" type="submit" disabled>Wyślij <span aria-hidden="true">→</span></button></div>
       </form>
     </div>
   </body>

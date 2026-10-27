@@ -128,7 +128,7 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .refresh-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 8px; padding: 10px 0 0; border: 0; border-top: 1px solid #edf0f5; background: none; color: #8794a7; font-size: 9px; }
 .refresh-button span { font-size: 14px; }
 .refresh-button:hover { color: var(--blue); }
-.auth-backdrop { position: fixed; z-index: 5; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 57, .35); backdrop-filter: blur(4px); }
+.auth-backdrop { position: fixed; z-index: 8; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 57, .35); backdrop-filter: blur(4px); }
 .auth-backdrop[hidden] { display: none; }
 .auth-card { width: min(100%, 370px); padding: 29px; border: 1px solid #e3e9f1; border-radius: 17px; background: #fff; box-shadow: 0 24px 70px rgba(18, 38, 67, .18); }
 .auth-mark { width: 37px; height: 37px; display: grid; place-items: center; margin-bottom: 19px; border-radius: 11px; background: var(--blue-soft); color: var(--blue); font-size: 20px; }
@@ -137,6 +137,23 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .auth-card .field-label { margin-top: 0; }
 .auth-card .button { width: 100%; margin-top: 7px; }
 .auth-card .button span { margin-left: auto; }
+.study-backdrop { position: fixed; z-index: 6; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(20, 35, 57, .4); backdrop-filter: blur(4px); }
+.study-backdrop[hidden] { display: none; }
+.study-card { width: min(100%, 650px); max-height: min(92vh, 760px); max-height: min(92dvh, 760px); padding: 26px; overflow: auto; border: 1px solid #e3e9f1; border-radius: 17px; background: #fff; box-shadow: 0 24px 70px rgba(18, 38, 67, .2); }
+.study-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.study-heading .eyebrow { margin-bottom: 5px; }
+.study-heading h2 { font-size: 20px; }
+.study-close { color: #7f8da2; font-size: 24px; line-height: 1; }
+.study-close:hover { color: var(--red); }
+.study-note { margin: 13px 0 4px; color: #78869a; font-size: 11px; line-height: 1.55; }
+.study-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 15px; }
+.study-fields .field-label { margin: 15px 0 7px; }
+.study-fields small { display: block; margin-top: 6px; color: #8996a9; font-size: 9px; line-height: 1.4; }
+.study-date-field { grid-column: 1 / -1; }
+.study-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
+.study-actions .button-primary { min-width: 125px; }
+.study-actions .button-primary span { margin-left: auto; }
+.study-actions .button-primary:disabled { cursor: not-allowed; opacity: .43; }
 
 @media (max-width: 900px) {
   .page-shell { padding: 0 28px; }
@@ -155,6 +172,13 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
   .side-column { grid-template-columns: 1fr; }
   .queue-card { padding: 21px 17px 14px; }
   .queue-card { max-height: 65vh; max-height: 65dvh; }
+  .study-card { padding: 22px 18px; }
+}
+@media (max-width: 480px) {
+  .study-fields { grid-template-columns: 1fr; }
+  .study-date-field { grid-column: auto; }
+  .study-actions { flex-direction: column-reverse; }
+  .study-actions .button { width: 100%; }
 }
 @media (max-height: 500px) {
   .queue-card { max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); }

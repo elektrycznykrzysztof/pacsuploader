@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 import warnings
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from flask import Flask, jsonify, render_template, request
@@ -31,7 +31,6 @@ logger = logging.getLogger("fileloader")
 
 IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}
 DOCUMENT_FORMATS = {".pdf": "PDF"}
-UPLOAD_TIMESTAMP_SUFFIX = re.compile(r"_{1,2}[0-9]{8}T[0-9]{6}(?:[0-9]{6})?$")
 IMPLEMENTATION_CLASS_UID = generate_uid()
 
 
@@ -95,17 +94,7 @@ def valid_pesel(value):
     return False
 
 
-def strip_upload_timestamp(stem):
-    return UPLOAD_TIMESTAMP_SUFFIX.sub("", stem)
-
-
-def timestamped_dicom_path(relative_path, timestamp):
-    path = PurePosixPath(relative_path)
-    original_stem = strip_upload_timestamp(path.stem)
-    return str(path.with_name(f"{original_stem}_{timestamp}.dcm"))
-
-
-def patient_metadata_for_path(relative_path):
+def conversion_metadata_for_file(relative_path, patient_metadata):
     path = PurePosixPath(relative_path)
     extension = path.suffix.lower()
     expected_format = IMAGE_FORMATS.get(extension)
@@ -113,42 +102,77 @@ def patient_metadata_for_path(relative_path):
     if not expected_format and not document_format:
         return None
 
-    stem = strip_upload_timestamp(path.stem)
-    if "__" in stem:
-        parts = stem.split("__")
-    elif stem.count("_") == 3:
-        parts = stem.split("_")
-    elif len(stem.split()) == 4:
-        parts = stem.split()
-    else:
-        parts = []
-    if len(parts) != 4:
-        if document_format:
-            expected_name = f"Pliki PDF muszą mieć nazwę Imię_Nazwisko_PESEL_Nazwaurzadzenia{extension}."
-        else:
-            expected_name = f"Obrazy PNG/JPEG muszą mieć nazwę Imię_Nazwisko_PESEL_Nazwaurzadzenia{extension}."
-        raise UploadValidationError(expected_name)
-    given_name, family_name, pesel, device_name = (part.strip() for part in parts)
-    if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
-        raise UploadValidationError("Imię i nazwisko w nazwie pliku są nieprawidłowe.")
-    if len(given_name) + len(family_name) + 1 > 64:
-        raise UploadValidationError("Imię lub nazwisko w nazwie pliku jest zbyt długie.")
-    if not valid_pesel(pesel):
-        raise UploadValidationError("PESEL w nazwie pliku musi mieć 11 cyfr i prawidłową sumę kontrolną oraz datę.")
-    modality = device_name.upper()
-    if not re.fullmatch(r"[A-Z0-9_ ]{1,16}", modality):
-        raise UploadValidationError("Nazwa urządzenia musi być kodem Modality: maksymalnie 16 znaków A-Z, 0-9, spacja lub podkreślenie.")
-
     return {
+        **patient_metadata,
         "expected_format": expected_format,
         "document_format": document_format,
         "kind": "pdf" if document_format else "image",
+    }
+
+
+def patient_metadata_from_form(form):
+    given_name = form.get("first_name", "").strip()
+    family_name = form.get("last_name", "").strip()
+    pesel = form.get("patient_id", "").strip()
+    exam_type = form.get("exam_type", "").strip()
+    laterality = form.get("laterality", "").strip()
+    device_name = form.get("device_name", "").strip()
+    study_date_value = form.get("study_date", "").strip()
+    study_time_value = form.get("study_time", "").strip()
+
+    if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
+        raise UploadValidationError("Wpisz prawidłowe imię i nazwisko.")
+    if len(given_name) + len(family_name) + 1 > 64:
+        raise UploadValidationError("Imię lub nazwisko jest zbyt długie.")
+    if not valid_pesel(pesel):
+        raise UploadValidationError("PESEL musi mieć 11 cyfr i prawidłową sumę kontrolną oraz datę.")
+    if not exam_type or any(ord(char) < 32 for char in exam_type):
+        raise UploadValidationError("Wpisz rodzaj badania.")
+    if laterality not in {"OP", "OL", "OU"}:
+        raise UploadValidationError("Wybierz stronę badania: OP, OL lub OU.")
+    modality = device_name.upper()
+    if not re.fullmatch(r"[A-Z0-9_ ]{1,16}", modality):
+        raise UploadValidationError("Nazwa urządzenia musi mieć maksymalnie 16 znaków: litery A-Z, cyfry, spacje lub podkreślenia.")
+
+    try:
+        study_date = date.fromisoformat(study_date_value)
+        study_time = datetime.strptime(study_time_value, "%H:%M:%S").time()
+    except ValueError:
+        raise UploadValidationError("Data badania lub czas pliku są nieprawidłowe.") from None
+
+    study_description = f"{exam_type} {laterality}"
+    if len(study_description) > 64:
+        raise UploadValidationError("Rodzaj badania jest zbyt długi dla pola Study Description (maksymalnie 64 znaki).")
+
+    return {
         "given_name": given_name,
         "family_name": family_name,
         "patient_id": pesel,
         "patient_name": f"{family_name}^{given_name}",
         "modality": modality,
+        "device_name": device_name,
+        "study_date": study_date,
+        "study_datetime": datetime.combine(study_date, study_time),
+        "study_description": study_description,
     }
+
+
+def safe_filename_component(value):
+    return re.sub(r"[^\w-]+", "_", value, flags=re.UNICODE).strip("._-") or "plik"
+
+
+def dicom_output_path(relative_path, metadata, timestamp):
+    path = PurePosixPath(relative_path)
+    study_date = metadata["study_date"].strftime("%Y%m%d")
+    filename = "_".join((
+        safe_filename_component(metadata["given_name"]),
+        safe_filename_component(metadata["family_name"]),
+        metadata["patient_id"],
+        study_date,
+        safe_filename_component(metadata["device_name"]),
+        timestamp,
+    )) + ".dcm"
+    return str(path.with_name(filename))
 
 
 def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, series_number, instance_number, study_datetime):
@@ -193,7 +217,7 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
     dataset.AccessionNumber = ""
     dataset.ReferringPhysicianName = ""
     dataset.StudyID = ""
-    dataset.StudyDescription = "Dokument PDF"
+    dataset.StudyDescription = metadata["study_description"]
     dataset.Modality = metadata["modality"]
     dataset.SeriesInstanceUID = series_uid
     dataset.SeriesNumber = str(series_number)
@@ -202,7 +226,7 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
     dataset.ContentTime = now.strftime("%H%M%S.%f")
     dataset.AcquisitionDateTime = now.strftime("%Y%m%d%H%M%S.%f")
     dataset.BurnedInAnnotation = "YES"
-    dataset.DocumentTitle = "Dokument PDF"
+    dataset.DocumentTitle = metadata["study_description"]
     dataset.Manufacturer = "PACS Uploader"
     dataset.ManufacturerModelName = "PACS Uploader"
     dataset.SoftwareVersions = "1"
@@ -301,7 +325,7 @@ def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, s
     dataset.AccessionNumber = ""
     dataset.ReferringPhysicianName = ""
     dataset.StudyID = ""
-    dataset.StudyDescription = "Konwersja obrazu PNG/JPEG"
+    dataset.StudyDescription = metadata["study_description"]
     dataset.Modality = metadata["modality"]
     dataset.SeriesInstanceUID = series_uid
     dataset.SeriesNumber = str(series_number)
@@ -779,7 +803,6 @@ def create_app():
     @app.post("/api/upload")
     def upload():
         upload_datetime = datetime.now()
-        upload_timestamp = upload_datetime.strftime("%Y%m%dT%H%M%S%f")
         uploaded_files = request.files.getlist("files")
         raw_paths = request.form.getlist("paths")
         if not uploaded_files:
@@ -804,13 +827,20 @@ def create_app():
         series_contexts = {}
         patient_instance_counts = {}
         try:
-            for relative in relative_paths:
-                metadata = patient_metadata_for_path(relative)
-                output_path = timestamped_dicom_path(relative, upload_timestamp) if metadata else relative
+            has_convertible_files = any(
+                PurePosixPath(relative).suffix.lower() in {*IMAGE_FORMATS, *DOCUMENT_FORMATS}
+                for relative in relative_paths
+            )
+            case_metadata = patient_metadata_from_form(request.form) if has_convertible_files else None
+
+            for index, relative in enumerate(relative_paths):
+                metadata = conversion_metadata_for_file(relative, case_metadata) if case_metadata else None
+                file_timestamp = (upload_datetime + timedelta(microseconds=index)).strftime("%Y%m%dT%H%M%S%f")
+                output_path = dicom_output_path(relative, metadata, file_timestamp) if metadata else relative
                 try:
                     output_path = normalized_relative_path(output_path)
                 except ValueError:
-                    raise UploadValidationError("Po dodaniu timestampu ścieżka pliku jest zbyt długa.") from None
+                    raise UploadValidationError("Wygenerowana ścieżka pliku DICOM jest zbyt długa.") from None
                 prepared = {"input_path": relative, "output_path": output_path, "metadata": metadata}
                 if metadata:
                     patient_id = metadata["patient_id"]
@@ -821,7 +851,7 @@ def create_app():
                         context = {
                             "patient_name": metadata["patient_name"],
                             "study_uid": generate_uid(),
-                            "study_datetime": upload_datetime,
+                            "study_datetime": metadata["study_datetime"],
                         }
                         patient_contexts[patient_id] = context
                     series_key = (patient_id, metadata["kind"], metadata["modality"])
@@ -856,8 +886,8 @@ def create_app():
         payload_dir = job_dir / "payload"
         source_dir = job_dir / "sources"
         payload_dir.mkdir(parents=True, exist_ok=False)
-        converted_images = sum(item["metadata"] and item["metadata"]["kind"] == "image" for item in prepared_files)
-        converted_documents = sum(item["metadata"] and item["metadata"]["kind"] == "pdf" for item in prepared_files)
+        converted_images = sum(bool(item["metadata"] and item["metadata"]["kind"] == "image") for item in prepared_files)
+        converted_documents = sum(bool(item["metadata"] and item["metadata"]["kind"] == "pdf") for item in prepared_files)
         stored_files = []
         total_bytes = 0
         try:

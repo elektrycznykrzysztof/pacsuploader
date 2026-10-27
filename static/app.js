@@ -1,6 +1,6 @@
 (() => {
   const TOKEN_KEY = 'plikownia-token';
-  const state = { files: [], uploading: false };
+  const state = { files: [], uploading: false, uploadMetadata: null };
   const byId = (id) => document.getElementById(id);
   const fileInput = byId('file-input');
   const folderInput = byId('folder-input');
@@ -8,6 +8,10 @@
   const uploadButton = byId('upload-button');
   const authDialog = byId('auth-dialog');
   const tokenInput = byId('token-input');
+  const studyDialog = byId('study-dialog');
+  const studyForm = byId('study-form');
+  const studySubmit = byId('study-submit');
+  const studyPesel = byId('study-pesel');
   const nfsConnection = byId('nfs-connection');
   const nfsStatusText = byId('nfs-status-text');
 
@@ -66,6 +70,58 @@
     node.classList.toggle('error-message', isError);
   }
 
+  function isConvertible(file) {
+    return /\.(png|jpe?g|pdf)$/i.test(file.name || '');
+  }
+
+  function validPesel(value) {
+    if (!/^\d{11}$/.test(value)) return false;
+    const weights = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
+    const checksum = (10 - [...value.slice(0, 10)].reduce((sum, digit, index) => sum + Number(digit) * weights[index], 0) % 10) % 10;
+    if (checksum !== Number(value[10])) return false;
+    const year = Number(value.slice(0, 2));
+    const encodedMonth = Number(value.slice(2, 4));
+    const day = Number(value.slice(4, 6));
+    for (const [offset, century] of [[80, 1800], [0, 1900], [20, 2000], [40, 2100], [60, 2200]]) {
+      const month = encodedMonth - offset;
+      if (month < 1 || month > 12) continue;
+      const parsed = new Date(Date.UTC(century + year, month - 1, day));
+      return parsed.getUTCFullYear() === century + year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+    }
+    return false;
+  }
+
+  function localDateTime(value) {
+    const date = new Date(value);
+    const pad = (number) => String(number).padStart(2, '0');
+    return {
+      date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+      time: `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
+    };
+  }
+
+  function updateStudySubmit() {
+    studyPesel.setCustomValidity(studyPesel.value && !validPesel(studyPesel.value) ? 'Wpisz prawidłowy PESEL.' : '');
+    studySubmit.disabled = state.uploading || !studyForm.checkValidity();
+  }
+
+  function openStudyDialog({ reset = false, file = null } = {}) {
+    if (reset) studyForm.reset();
+    if (file) {
+      const { date, time } = localDateTime(file.lastModified || Date.now());
+      byId('study-date').value = date;
+      byId('study-time').value = time;
+    }
+    byId('study-error').textContent = '';
+    studyDialog.hidden = false;
+    updateStudySubmit();
+    setTimeout(() => byId('study-first-name').focus(), 0);
+  }
+
+  function closeStudyDialog() {
+    studyDialog.hidden = true;
+  }
+
   function renderNfsStatus(status) {
     nfsConnection.classList.remove('nfs-connected', 'nfs-disconnected', 'nfs-checking');
     if (status?.connected === true) {
@@ -113,13 +169,19 @@
 
   function addFiles(fileList) {
     const byPath = new Map(state.files.map((item) => [item.path, item]));
+    let firstConvertible = null;
     for (const selected of Array.from(fileList || [])) {
       const file = selected.file || selected;
       const relativePath = selected.path || file.webkitRelativePath || file.name;
       byPath.set(relativePath, { file, path: relativePath });
+      if (!firstConvertible && isConvertible(file)) firstConvertible = file;
     }
     state.files = Array.from(byPath.values());
     renderSelection();
+    if (firstConvertible) {
+      state.uploadMetadata = null;
+      openStudyDialog({ reset: true, file: firstConvertible });
+    }
   }
 
   function entryFile(entry) {
@@ -203,7 +265,13 @@
   byId('choose-folder').addEventListener('click', () => folderInput.click());
   fileInput.addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
   folderInput.addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
-  byId('clear-selection').addEventListener('click', () => { state.files = []; renderSelection(); showMessage(''); });
+  byId('clear-selection').addEventListener('click', () => {
+    state.files = [];
+    state.uploadMetadata = null;
+    closeStudyDialog();
+    renderSelection();
+    showMessage('');
+  });
   dropZone.addEventListener('click', (event) => { if (event.target === dropZone) fileInput.click(); });
   dropZone.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fileInput.click(); }
@@ -222,11 +290,14 @@
     }
   });
 
-  uploadButton.addEventListener('click', () => {
-    if (!token()) { openAuth(); return; }
+  function sendSelectedFiles(metadata = null) {
     if (!state.files.length || state.uploading) return;
+    if (!token()) { openAuth(); return; }
     state.uploading = true;
+    state.uploadMetadata = metadata;
+    updateStudySubmit();
     renderSelection();
+    closeStudyDialog();
     showMessage('');
     byId('upload-progress').hidden = false;
     byId('progress-bar').style.width = '0%';
@@ -237,6 +308,9 @@
     for (const item of state.files) {
       form.append('files', item.file, item.file.name);
       form.append('paths', item.path);
+    }
+    if (metadata) {
+      for (const [name, value] of Object.entries(metadata)) form.append(name, value);
     }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
@@ -256,9 +330,17 @@
         openAuth('Token jest nieprawidłowy lub wygasł.');
         showMessage('');
       } else if (xhr.status < 200 || xhr.status >= 300) {
-        showMessage(body.error || 'Nie udało się przesłać plików.', true);
+        const errorMessage = body.error || 'Nie udało się przesłać plików.';
+        showMessage(errorMessage, true);
+        if (metadata && xhr.status === 400 && /PESEL|imię|nazwisko|rodzaj badania|stronę|urządzenia|Study Description|Data badania/i.test(errorMessage)) {
+          state.uploadMetadata = null;
+          openStudyDialog();
+          byId('study-error').textContent = errorMessage;
+        }
       } else {
         state.files = [];
+        state.uploadMetadata = null;
+        studyForm.reset();
         renderSelection();
         byId('progress-bar').style.width = '100%';
         byId('progress-percent').textContent = '100%';
@@ -275,14 +357,43 @@
         window.setTimeout(() => { byId('upload-progress').hidden = true; }, 2200);
       }
       state.uploading = false;
+      updateStudySubmit();
       renderSelection();
     });
     xhr.addEventListener('error', () => {
       state.uploading = false;
+      updateStudySubmit();
       renderSelection();
       showMessage('Nie udało się połączyć z serwerem. Sprawdź połączenie i spróbuj ponownie.', true);
     });
     xhr.send(form);
+  }
+
+  uploadButton.addEventListener('click', () => {
+    if (!token()) { openAuth(); return; }
+    if (!state.files.length || state.uploading) return;
+    const hasConvertible = state.files.some((item) => isConvertible(item.file));
+    if (hasConvertible && !state.uploadMetadata) {
+      openStudyDialog();
+      return;
+    }
+    sendSelectedFiles(state.uploadMetadata);
+  });
+
+  const handleStudyEdit = () => { byId('study-error').textContent = ''; updateStudySubmit(); };
+  studyForm.addEventListener('input', handleStudyEdit);
+  studyForm.addEventListener('change', handleStudyEdit);
+  studyPesel.addEventListener('input', () => { studyPesel.value = studyPesel.value.replace(/\D/g, '').slice(0, 11); updateStudySubmit(); });
+  const cancelStudy = () => { if (!state.uploading) closeStudyDialog(); };
+  byId('study-cancel').addEventListener('click', cancelStudy);
+  byId('study-cancel-bottom').addEventListener('click', cancelStudy);
+  studyForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    updateStudySubmit();
+    if (!studyForm.checkValidity()) { studyForm.reportValidity(); return; }
+    const values = Object.fromEntries(new FormData(studyForm).entries());
+    state.uploadMetadata = values;
+    sendSelectedFiles(values);
   });
 
   function appendText(parent, tag, className, text) {
