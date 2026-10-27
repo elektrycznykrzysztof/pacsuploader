@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
     <link rel="stylesheet" href="/static/styles.css?v=6">
-    <script src="/static/app.js?v=6" defer></script>
+    <script src="/static/app.js?v=7" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -35,13 +35,11 @@
               <span>albo wybierz z urządzenia</span>
               <div class="picker-actions">
                 <button id="choose-files" class="button button-secondary" type="button">Wybierz pliki</button>
-                <button id="choose-folder" class="button button-secondary" type="button">Wybierz katalog</button>
               </div>
               <small>Możesz dodać wiele plików jednocześnie</small>
             </div>
             <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM. Wprowadzone dane badania dotyczą wszystkich takich plików w paczce. Zwykłe pliki są przesyłane bez konwersji.</p>
             <input id="file-input" type="file" multiple hidden>
-            <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
 
             <div id="selection" class="selection" hidden>
               <div class="selection-heading"><strong id="selection-count">0 plików</strong><button id="clear-selection" class="text-button" type="button">Wyczyść</button></div>

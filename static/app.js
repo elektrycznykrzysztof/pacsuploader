@@ -3,7 +3,6 @@
   const state = { files: [], uploading: false, uploadMetadata: null };
   const byId = (id) => document.getElementById(id);
   const fileInput = byId('file-input');
-  const folderInput = byId('folder-input');
   const dropZone = byId('drop-zone');
   const uploadButton = byId('upload-button');
   const authDialog = byId('auth-dialog');
@@ -262,9 +261,7 @@
   }
 
   byId('choose-files').addEventListener('click', () => fileInput.click());
-  byId('choose-folder').addEventListener('click', () => folderInput.click());
   fileInput.addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
-  folderInput.addEventListener('change', (event) => { addFiles(event.target.files); event.target.value = ''; });
   byId('clear-selection').addEventListener('click', () => {
     state.files = [];
     state.uploadMetadata = null;
