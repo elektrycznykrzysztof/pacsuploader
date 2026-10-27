@@ -89,10 +89,6 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .progress-track { height: 5px; margin-top: 9px; border-radius: 5px; background: #e8edf4; overflow: hidden; }
 .progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--blue); transition: width .16s; }
 .upload-progress p { margin: 7px 0 0; color: #8c99ab; font-size: 9px; }
-.upload-button { width: 100%; margin-top: 15px; padding: 0 16px; color: #fff; background: var(--blue); }
-.upload-button span:last-child { margin-left: auto; font-size: 17px; line-height: 0; font-weight: 400; }
-.upload-button:hover:not(:disabled) { background: var(--blue-dark); }
-.upload-button:disabled { cursor: not-allowed; opacity: .43; }
 .privacy-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 12px 0 0; color: #8e9bad; font-size: 9px; text-align: center; }
 .privacy-note span { color: var(--blue); font-size: 15px; }
 .message { min-height: 0; margin: 0; color: var(--blue); font-size: 10px; line-height: 1.5; }

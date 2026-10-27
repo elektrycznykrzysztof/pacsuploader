@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
     <link rel="stylesheet" href="/static/styles.css?v=6">
-    <script src="/static/app.js?v=7" defer></script>
+    <script src="/static/app.js?v=8" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -54,9 +54,6 @@
             </div>
 
             <p id="upload-message" class="message" role="status" aria-live="polite"></p>
-            <button id="upload-button" class="button button-primary upload-button" type="button" disabled>
-              <span>Dodaj do kolejki</span><span aria-hidden="true">→</span>
-            </button>
             <p class="privacy-note"><span aria-hidden="true">⌁</span> Oryginały pozostaną tutaj do czasu potwierdzenia transferu.</p>
           </div>
 
@@ -90,9 +87,9 @@
       <form id="study-form" class="study-card">
         <div class="study-heading">
           <div><p class="eyebrow">DANE DICOM</p><h2>Uzupełnij dane badania</h2></div>
-          <button id="study-cancel" class="text-button study-close" type="button" aria-label="Zamknij">×</button>
+          <button id="study-cancel" class="text-button study-close" type="button" aria-label="Odrzuć paczkę">×</button>
         </div>
-        <p class="study-note">Te dane zostaną użyte dla wszystkich obrazów PNG/JPEG i dokumentów PDF w tej paczce. Nazwa pliku nie ma wpływu na metadane.</p>
+        <p class="study-note">Te dane opiszą pliki PNG/JPEG i PDF w tej paczce. Pozostałe pliki wyślemy bez konwersji. Nazwa pliku nie ma wpływu na metadane.</p>
         <div class="study-fields">
           <div><label class="field-label" for="study-first-name">Imię</label><input id="study-first-name" name="first_name" class="text-input" autocomplete="given-name" required maxlength="64"></div>
           <div><label class="field-label" for="study-last-name">Nazwisko</label><input id="study-last-name" name="last_name" class="text-input" autocomplete="family-name" required maxlength="64"></div>
@@ -104,7 +101,7 @@
         </div>
         <input id="study-time" name="study_time" type="hidden">
         <p id="study-error" class="message error-message" role="alert"></p>
-        <div class="study-actions"><button id="study-cancel-bottom" class="button button-secondary" type="button">Anuluj</button><button id="study-submit" class="button button-primary" type="submit" disabled>Wyślij <span aria-hidden="true">→</span></button></div>
+        <div class="study-actions"><button id="study-cancel-bottom" class="button button-secondary" type="button">Odrzuć pliki</button><button id="study-submit" class="button button-primary" type="submit" disabled>Wyślij <span aria-hidden="true">→</span></button></div>
       </form>
     </div>
   </body>

@@ -4,7 +4,6 @@
   const byId = (id) => document.getElementById(id);
   const fileInput = byId('file-input');
   const dropZone = byId('drop-zone');
-  const uploadButton = byId('upload-button');
   const authDialog = byId('auth-dialog');
   const tokenInput = byId('token-input');
   const studyDialog = byId('study-dialog');
@@ -67,10 +66,6 @@
     const node = byId('upload-message');
     node.textContent = text;
     node.classList.toggle('error-message', isError);
-  }
-
-  function isConvertible(file) {
-    return /\.(png|jpe?g|pdf)$/i.test(file.name || '');
   }
 
   function validPesel(value) {
@@ -168,18 +163,18 @@
 
   function addFiles(fileList) {
     const byPath = new Map(state.files.map((item) => [item.path, item]));
-    let firstConvertible = null;
+    let firstAddedFile = null;
     for (const selected of Array.from(fileList || [])) {
       const file = selected.file || selected;
       const relativePath = selected.path || file.webkitRelativePath || file.name;
       byPath.set(relativePath, { file, path: relativePath });
-      if (!firstConvertible && isConvertible(file)) firstConvertible = file;
+      if (!firstAddedFile) firstAddedFile = file;
     }
     state.files = Array.from(byPath.values());
     renderSelection();
-    if (firstConvertible) {
+    if (firstAddedFile) {
       state.uploadMetadata = null;
-      openStudyDialog({ reset: true, file: firstConvertible });
+      openStudyDialog({ reset: true, file: firstAddedFile });
     }
   }
 
@@ -228,7 +223,6 @@
   function renderSelection() {
     const selection = byId('selection');
     selection.hidden = state.files.length === 0;
-    uploadButton.disabled = state.uploading || state.files.length === 0;
     if (!state.files.length) return;
 
     const count = state.files.length;
@@ -325,15 +319,13 @@
       if (xhr.status === 401) {
         sessionStorage.removeItem(TOKEN_KEY);
         openAuth('Token jest nieprawidłowy lub wygasł.');
+        openStudyDialog();
         showMessage('');
       } else if (xhr.status < 200 || xhr.status >= 300) {
         const errorMessage = body.error || 'Nie udało się przesłać plików.';
         showMessage(errorMessage, true);
-        if (metadata && xhr.status === 400 && /PESEL|imię|nazwisko|rodzaj badania|stronę|urządzenia|Study Description|Data badania/i.test(errorMessage)) {
-          state.uploadMetadata = null;
-          openStudyDialog();
-          byId('study-error').textContent = errorMessage;
-        }
+        openStudyDialog();
+        byId('study-error').textContent = errorMessage;
       } else {
         state.files = [];
         state.uploadMetadata = null;
@@ -361,27 +353,27 @@
       state.uploading = false;
       updateStudySubmit();
       renderSelection();
-      showMessage('Nie udało się połączyć z serwerem. Sprawdź połączenie i spróbuj ponownie.', true);
+      const errorMessage = 'Nie udało się połączyć z serwerem. Sprawdź połączenie i spróbuj ponownie.';
+      showMessage(errorMessage, true);
+      openStudyDialog();
+      byId('study-error').textContent = errorMessage;
     });
     xhr.send(form);
   }
-
-  uploadButton.addEventListener('click', () => {
-    if (!token()) { openAuth(); return; }
-    if (!state.files.length || state.uploading) return;
-    const hasConvertible = state.files.some((item) => isConvertible(item.file));
-    if (hasConvertible && !state.uploadMetadata) {
-      openStudyDialog();
-      return;
-    }
-    sendSelectedFiles(state.uploadMetadata);
-  });
 
   const handleStudyEdit = () => { byId('study-error').textContent = ''; updateStudySubmit(); };
   studyForm.addEventListener('input', handleStudyEdit);
   studyForm.addEventListener('change', handleStudyEdit);
   studyPesel.addEventListener('input', () => { studyPesel.value = studyPesel.value.replace(/\D/g, '').slice(0, 11); updateStudySubmit(); });
-  const cancelStudy = () => { if (!state.uploading) closeStudyDialog(); };
+  const cancelStudy = () => {
+    if (state.uploading) return;
+    state.files = [];
+    state.uploadMetadata = null;
+    studyForm.reset();
+    closeStudyDialog();
+    renderSelection();
+    showMessage('');
+  };
   byId('study-cancel').addEventListener('click', cancelStudy);
   byId('study-cancel-bottom').addEventListener('click', cancelStudy);
   studyForm.addEventListener('submit', (event) => {
