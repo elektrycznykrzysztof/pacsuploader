@@ -27,7 +27,7 @@
               <div><p class="eyebrow">NOWA PACZKA</p><h2>Dodaj pliki</h2></div>
               <span class="step-badge">01 <i>/</i> 02</span>
             </div>
-            <p class="filename-rule"><strong>Nazwa pliku musi być w formie:</strong> <code>Imie_Nazwisko_PESEL</code> (z rozszerzeniem .jpg, .jpeg, .png lub .pdf).</p>
+            <p class="filename-rule"><strong>Nazwa pliku musi być w formie:</strong> <code>Imie_Nazwisko_PESEL_Nazwaurzadzenia</code> (z rozszerzeniem .jpg, .jpeg, .png lub .pdf).</p>
 
             <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="Przeciągnij pliki lub katalogi tutaj albo wybierz z dysku">
               <div class="upload-glyph" aria-hidden="true"><svg viewBox="0 0 44 44" fill="none"><path d="M22 29V10m0 0-7 7m7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 25v8a2 2 0 0 0 2 2h20a2 2 0 0 0 2-2v-8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
@@ -39,7 +39,7 @@
               </div>
               <small>Możesz dodać wiele plików jednocześnie</small>
             </div>
-            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM; PDF pozostaje w nim osadzony. Akceptujemy też podwójne podkreślenia lub spacje jako separatory. PESEL musi mieć 11 cyfr, poprawną sumę kontrolną i datę. Do nazwy DICOM dodajemy timestamp uploadu.</p>
+            <p class="format-note">PNG/JPEG oraz PDF (do 4 GiB) konwertujemy do DICOM; PDF pozostaje w nim osadzony. Ostatni segment nazwy zapisujemy w polu Modality (np. CT, MR, US). Akceptujemy też podwójne podkreślenia lub spacje jako separatory. PESEL musi mieć 11 cyfr, poprawną sumę kontrolną i datę. Do nazwy DICOM dodajemy timestamp uploadu.</p>
             <input id="file-input" type="file" multiple hidden>
             <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
 

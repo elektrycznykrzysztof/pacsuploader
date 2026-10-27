@@ -116,27 +116,28 @@ def patient_metadata_for_path(relative_path):
     stem = strip_upload_timestamp(path.stem)
     if "__" in stem:
         parts = stem.split("__")
-    elif stem.count("_") == 2:
+    elif stem.count("_") == 3:
         parts = stem.split("_")
-    elif len(stem.split()) == 3:
+    elif len(stem.split()) == 4:
         parts = stem.split()
     else:
         parts = []
-    if len(parts) != 3:
+    if len(parts) != 4:
         if document_format:
-            expected_name = f"Pliki PDF muszą mieć nazwę Imię__Nazwisko__PESEL{extension}."
+            expected_name = f"Pliki PDF muszą mieć nazwę Imię_Nazwisko_PESEL_Nazwaurzadzenia{extension}."
         else:
-            expected_name = f"Obrazy PNG/JPEG muszą mieć nazwę Imię__Nazwisko__PESEL{extension}."
-        raise UploadValidationError(
-            expected_name
-        )
-    given_name, family_name, pesel = (part.strip() for part in parts)
+            expected_name = f"Obrazy PNG/JPEG muszą mieć nazwę Imię_Nazwisko_PESEL_Nazwaurzadzenia{extension}."
+        raise UploadValidationError(expected_name)
+    given_name, family_name, pesel, device_name = (part.strip() for part in parts)
     if not given_name or not family_name or any(char in "^=" or ord(char) < 32 for char in given_name + family_name):
         raise UploadValidationError("Imię i nazwisko w nazwie pliku są nieprawidłowe.")
     if len(given_name) + len(family_name) + 1 > 64:
         raise UploadValidationError("Imię lub nazwisko w nazwie pliku jest zbyt długie.")
     if not valid_pesel(pesel):
         raise UploadValidationError("PESEL w nazwie pliku musi mieć 11 cyfr i prawidłową sumę kontrolną oraz datę.")
+    modality = device_name.upper()
+    if not re.fullmatch(r"[A-Z0-9_ ]{1,16}", modality):
+        raise UploadValidationError("Nazwa urządzenia musi być kodem Modality: maksymalnie 16 znaków A-Z, 0-9, spacja lub podkreślenie.")
 
     return {
         "expected_format": expected_format,
@@ -146,10 +147,11 @@ def patient_metadata_for_path(relative_path):
         "family_name": family_name,
         "patient_id": pesel,
         "patient_name": f"{family_name}^{given_name}",
+        "modality": modality,
     }
 
 
-def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, instance_number, study_datetime):
+def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, series_number, instance_number, study_datetime):
     source_path = Path(source_path)
     destination_path = Path(destination_path)
     try:
@@ -192,9 +194,9 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
     dataset.ReferringPhysicianName = ""
     dataset.StudyID = ""
     dataset.StudyDescription = "Dokument PDF"
-    dataset.Modality = "DOC"
+    dataset.Modality = metadata["modality"]
     dataset.SeriesInstanceUID = series_uid
-    dataset.SeriesNumber = "1"
+    dataset.SeriesNumber = str(series_number)
     dataset.InstanceNumber = str(instance_number)
     dataset.ContentDate = now.strftime("%Y%m%d")
     dataset.ContentTime = now.strftime("%H%M%S.%f")
@@ -241,7 +243,7 @@ def convert_pdf_to_dicom(source_path, destination_path, metadata, study_uid, ser
         raise UploadValidationError("Nie udało się utworzyć pliku DICOM z dokumentu PDF.") from None
 
 
-def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, instance_number, study_datetime):
+def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, series_uid, series_number, instance_number, study_datetime):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -300,9 +302,9 @@ def convert_image_to_dicom(source_path, destination_path, metadata, study_uid, s
     dataset.ReferringPhysicianName = ""
     dataset.StudyID = ""
     dataset.StudyDescription = "Konwersja obrazu PNG/JPEG"
-    dataset.Modality = "OT"
+    dataset.Modality = metadata["modality"]
     dataset.SeriesInstanceUID = series_uid
-    dataset.SeriesNumber = "1"
+    dataset.SeriesNumber = str(series_number)
     dataset.AcquisitionNumber = "1"
     dataset.InstanceNumber = str(instance_number)
     dataset.ImageType = ["DERIVED", "SECONDARY"]
@@ -822,14 +824,19 @@ def create_app():
                             "study_datetime": upload_datetime,
                         }
                         patient_contexts[patient_id] = context
-                    series_key = (patient_id, metadata["kind"])
+                    series_key = (patient_id, metadata["kind"], metadata["modality"])
                     if series_key not in series_contexts:
-                        series_contexts[series_key] = {"series_uid": generate_uid()}
+                        series_number = 1 + sum(key[0] == patient_id for key in series_contexts)
+                        series_contexts[series_key] = {
+                            "series_uid": generate_uid(),
+                            "series_number": series_number,
+                        }
                     series_context = series_contexts[series_key]
-                    instance_key = (patient_id, metadata["kind"])
+                    instance_key = series_key
                     patient_instance_counts[instance_key] = patient_instance_counts.get(instance_key, 0) + 1
                     prepared["study_uid"] = context["study_uid"]
                     prepared["series_uid"] = series_context["series_uid"]
+                    prepared["series_number"] = series_context["series_number"]
                     prepared["study_datetime"] = context["study_datetime"]
                     prepared["instance_number"] = patient_instance_counts[instance_key]
                 prepared_files.append(prepared)
@@ -880,6 +887,7 @@ def create_app():
                         metadata,
                         prepared["study_uid"],
                         prepared["series_uid"],
+                        prepared["series_number"],
                         prepared["instance_number"],
                         prepared["study_datetime"],
                     )
