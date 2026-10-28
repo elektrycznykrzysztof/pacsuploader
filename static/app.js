@@ -1,6 +1,6 @@
 (() => {
   const TOKEN_KEY = 'plikownia-token';
-  const state = { files: [], uploading: false, uploadMetadata: null };
+  const state = { files: [], uploading: false, uploadMetadata: null, searchingPatient: false, patientLookupPesel: null };
   const byId = (id) => document.getElementById(id);
   const fileInput = byId('file-input');
   const dropZone = byId('drop-zone');
@@ -10,6 +10,10 @@
   const studyForm = byId('study-form');
   const studySubmit = byId('study-submit');
   const studyPesel = byId('study-pesel');
+  const patientSearchButton = byId('patient-search-button');
+  const patientSearchStatus = byId('patient-search-status');
+  const studyFirstName = byId('study-first-name');
+  const studyLastName = byId('study-last-name');
   const nfsConnection = byId('nfs-connection');
   const nfsStatusText = byId('nfs-status-text');
 
@@ -96,11 +100,24 @@
 
   function updateStudySubmit() {
     studyPesel.setCustomValidity(studyPesel.value && !validPesel(studyPesel.value) ? 'Wpisz prawidłowy PESEL.' : '');
-    studySubmit.disabled = state.uploading || !studyForm.checkValidity();
+    studySubmit.disabled = state.uploading || state.searchingPatient || !studyForm.checkValidity();
+    patientSearchButton.disabled = state.uploading || state.searchingPatient || !validPesel(studyPesel.value);
+    studyPesel.disabled = state.uploading || state.searchingPatient;
+  }
+
+  function resetStudyForm() {
+    studyForm.reset();
+    state.patientLookupPesel = null;
+    state.searchingPatient = false;
+    studyPesel.disabled = false;
+    studyFirstName.readOnly = false;
+    studyLastName.readOnly = false;
+    patientSearchStatus.textContent = '';
+    patientSearchStatus.className = 'patient-search-status';
   }
 
   function openStudyDialog({ reset = false, file = null } = {}) {
-    if (reset) studyForm.reset();
+    if (reset) resetStudyForm();
     if (file) {
       const { date, time } = localDateTime(file.lastModified || Date.now());
       byId('study-date').value = date;
@@ -329,7 +346,7 @@
       } else {
         state.files = [];
         state.uploadMetadata = null;
-        studyForm.reset();
+        resetStudyForm();
         renderSelection();
         byId('progress-bar').style.width = '100%';
         byId('progress-percent').textContent = '100%';
@@ -364,12 +381,65 @@
   const handleStudyEdit = () => { byId('study-error').textContent = ''; updateStudySubmit(); };
   studyForm.addEventListener('input', handleStudyEdit);
   studyForm.addEventListener('change', handleStudyEdit);
-  studyPesel.addEventListener('input', () => { studyPesel.value = studyPesel.value.replace(/\D/g, '').slice(0, 11); updateStudySubmit(); });
+  studyPesel.addEventListener('input', () => {
+    studyPesel.value = studyPesel.value.replace(/\D/g, '').slice(0, 11);
+    if (state.patientLookupPesel && studyPesel.value !== state.patientLookupPesel) {
+      state.patientLookupPesel = null;
+      studyFirstName.value = '';
+      studyLastName.value = '';
+      studyFirstName.readOnly = false;
+      studyLastName.readOnly = false;
+      patientSearchStatus.textContent = '';
+      patientSearchStatus.className = 'patient-search-status';
+    }
+    updateStudySubmit();
+  });
+  patientSearchButton.addEventListener('click', async () => {
+    const patientId = studyPesel.value.trim();
+    if (!validPesel(patientId)) {
+      patientSearchStatus.textContent = 'Wpisz prawidłowy PESEL.';
+      patientSearchStatus.className = 'patient-search-status error';
+      return;
+    }
+    state.searchingPatient = true;
+    patientSearchButton.textContent = 'Szukam…';
+    updateStudySubmit();
+    patientSearchStatus.textContent = '';
+    patientSearchStatus.className = 'patient-search-status';
+    try {
+      const result = await api('/api/patients/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pesel: patientId }),
+      });
+      state.patientLookupPesel = patientId;
+      if (result.patient) {
+        studyFirstName.value = result.patient.first_name;
+        studyLastName.value = result.patient.last_name;
+        studyFirstName.readOnly = true;
+        studyLastName.readOnly = true;
+        patientSearchStatus.textContent = 'Znaleziono pacjenta. Uzupełniono imię i nazwisko.';
+        patientSearchStatus.className = 'patient-search-status found';
+      } else {
+        studyFirstName.readOnly = false;
+        studyLastName.readOnly = false;
+        patientSearchStatus.textContent = 'Pacjenta nie ma w bazie. Zostanie dodany po wybraniu „Wyślij”.';
+        patientSearchStatus.className = 'patient-search-status';
+      }
+    } catch (error) {
+      patientSearchStatus.textContent = error.message;
+      patientSearchStatus.className = 'patient-search-status error';
+    } finally {
+      state.searchingPatient = false;
+      patientSearchButton.textContent = 'Szukaj';
+      updateStudySubmit();
+    }
+  });
   const cancelStudy = () => {
     if (state.uploading) return;
     state.files = [];
     state.uploadMetadata = null;
-    studyForm.reset();
+    resetStudyForm();
     closeStudyDialog();
     renderSelection();
     showMessage('');

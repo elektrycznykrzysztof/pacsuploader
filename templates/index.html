@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#f4f7fc">
     <title>PACS Uploader</title>
-    <link rel="stylesheet" href="/static/styles.css?v=6">
-    <script src="/static/app.js?v=8" defer></script>
+    <link rel="stylesheet" href="/static/styles.css?v=7">
+    <script src="/static/app.js?v=9" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -93,7 +93,12 @@
         <div class="study-fields">
           <div><label class="field-label" for="study-first-name">Imię</label><input id="study-first-name" name="first_name" class="text-input" autocomplete="given-name" required maxlength="64"></div>
           <div><label class="field-label" for="study-last-name">Nazwisko</label><input id="study-last-name" name="last_name" class="text-input" autocomplete="family-name" required maxlength="64"></div>
-          <div><label class="field-label" for="study-pesel">PESEL</label><input id="study-pesel" name="patient_id" class="text-input" inputmode="numeric" autocomplete="off" required minlength="11" maxlength="11" pattern="[0-9]{11}"><small>11 cyfr z prawidłową datą i sumą kontrolną.</small></div>
+          <div class="study-pesel-field">
+            <label class="field-label" for="study-pesel">PESEL</label>
+            <div class="pesel-search-row"><input id="study-pesel" name="patient_id" class="text-input" inputmode="numeric" autocomplete="off" required minlength="11" maxlength="11" pattern="[0-9]{11}"><button id="patient-search-button" class="button button-secondary" type="button" disabled>Szukaj</button></div>
+            <small>11 cyfr z prawidłową datą i sumą kontrolną.</small>
+            <small id="patient-search-status" class="patient-search-status" role="status" aria-live="polite"></small>
+          </div>
           <div><label class="field-label" for="study-exam-type">Rodzaj badania</label><input id="study-exam-type" name="exam_type" class="text-input" required maxlength="61"></div>
           <div><label class="field-label" for="study-laterality">Strona</label><select id="study-laterality" name="laterality" class="text-input" required><option value="" selected disabled>Wybierz stronę</option><option value="OP">OP</option><option value="OL">OL</option><option value="OU">OU</option></select></div>
           <div><label class="field-label" for="study-device">Nazwa urządzenia</label><input id="study-device" name="device_name" class="text-input" required maxlength="16" pattern="[A-Za-z0-9_ ]{1,16}" title="Maksymalnie 16 znaków: litery łacińskie, cyfry, spacje lub podkreślenia"><small>Zapiszemy ją w polu Modality (do 16 znaków).</small></div>

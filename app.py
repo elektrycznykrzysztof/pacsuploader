@@ -20,6 +20,8 @@ from flask import Flask, jsonify, render_template, request
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydicom.dataset import FileDataset, FileMetaDataset
 from pydicom.uid import EncapsulatedPDFStorage, ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
+import psycopg
+from psycopg.rows import dict_row
 from werkzeug.exceptions import RequestEntityTooLarge
 
 
@@ -32,6 +34,59 @@ logger = logging.getLogger("fileloader")
 IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG"}
 DOCUMENT_FORMATS = {".pdf": "PDF"}
 IMPLEMENTATION_CLASS_UID = generate_uid()
+
+
+def database_connection():
+    return psycopg.connect(
+        host=os.environ.get("DB_HOST", "postgres"),
+        port=int(os.environ.get("DB_PORT", "5432")),
+        dbname=os.environ.get("DB_NAME", "fileloader"),
+        user=os.environ.get("DB_USER", "fileloader"),
+        password=os.environ.get("DB_PASSWORD", ""),
+        connect_timeout=5,
+        row_factory=dict_row,
+    )
+
+
+def initialize_patient_database():
+    attempts = int(os.environ.get("DB_CONNECT_ATTEMPTS", "30"))
+    for attempt in range(1, attempts + 1):
+        try:
+            with database_connection() as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS patients (
+                        patient_id VARCHAR(11) PRIMARY KEY
+                            CHECK (patient_id ~ '^[0-9]{11}$'),
+                        first_name VARCHAR(64) NOT NULL,
+                        last_name VARCHAR(64) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            logger.info("Baza pacjentów PostgreSQL jest gotowa.")
+            return
+        except psycopg.Error:
+            if attempt == attempts:
+                raise
+            logger.warning("PostgreSQL niedostępny; ponawiam połączenie (%s/%s).", attempt, attempts)
+            time.sleep(min(2, attempt))
+
+
+def get_or_create_patient(patient_id, first_name, last_name):
+    with database_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO patients (patient_id, first_name, last_name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (patient_id) DO NOTHING
+            """,
+            (patient_id, first_name, last_name),
+        )
+        return connection.execute(
+            "SELECT patient_id, first_name, last_name FROM patients WHERE patient_id = %s",
+            (patient_id,),
+        ).fetchone()
 
 
 class UploadValidationError(Exception):
@@ -742,6 +797,9 @@ def create_app():
     app_token = os.environ.get("APP_TOKEN", "")
     if not app_token:
         raise RuntimeError("Ustaw APP_TOKEN w pliku .env przed uruchomieniem aplikacji.")
+    if not os.environ.get("DB_PASSWORD"):
+        raise RuntimeError("Ustaw POSTGRES_PASSWORD w pliku .env przed uruchomieniem aplikacji.")
+    initialize_patient_database()
 
     jobs_root = data_root / "jobs"
     incoming_root = data_root / ".incoming"
@@ -783,6 +841,36 @@ def create_app():
     @app.get("/api/health")
     def health():
         return jsonify({"status": "ok", "nfs": nfs_monitor.snapshot()})
+
+    @app.post("/api/patients/search")
+    def find_patient():
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            body = {}
+        patient_id = str(body.get("pesel", "")).strip()
+        if not valid_pesel(patient_id):
+            return jsonify({"error": "Wpisz prawidłowy PESEL przed wyszukaniem."}), 400
+        try:
+            with database_connection() as connection:
+                patient = connection.execute(
+                    "SELECT first_name, last_name FROM patients WHERE patient_id = %s",
+                    (patient_id,),
+                ).fetchone()
+        except psycopg.Error:
+            logger.exception("Nie udało się wyszukać pacjenta w PostgreSQL.")
+            return jsonify({"error": "Baza pacjentów jest chwilowo niedostępna."}), 503
+        if not patient:
+            response = jsonify({"patient": None})
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        response = jsonify({
+            "patient": {
+                "first_name": patient["first_name"],
+                "last_name": patient["last_name"],
+            }
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/api/jobs")
     def list_jobs():
@@ -831,7 +919,21 @@ def create_app():
                 PurePosixPath(relative).suffix.lower() in {*IMAGE_FORMATS, *DOCUMENT_FORMATS}
                 for relative in relative_paths
             )
-            case_metadata = patient_metadata_from_form(request.form) if has_convertible_files else None
+            has_patient_data = bool(request.form.get("patient_id", "").strip())
+            case_metadata = patient_metadata_from_form(request.form) if has_convertible_files or has_patient_data else None
+            if case_metadata:
+                try:
+                    patient = get_or_create_patient(
+                        case_metadata["patient_id"],
+                        case_metadata["given_name"],
+                        case_metadata["family_name"],
+                    )
+                except psycopg.Error:
+                    logger.exception("Nie udało się zapisać pacjenta w PostgreSQL.")
+                    return jsonify({"error": "Baza pacjentów jest chwilowo niedostępna. Paczka nie została przyjęta."}), 503
+                case_metadata["given_name"] = patient["first_name"]
+                case_metadata["family_name"] = patient["last_name"]
+                case_metadata["patient_name"] = f'{patient["last_name"]}^{patient["first_name"]}'
 
             for index, relative in enumerate(relative_paths):
                 metadata = conversion_metadata_for_file(relative, case_metadata) if case_metadata else None

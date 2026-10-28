@@ -1,13 +1,13 @@
 # PACS Uploader
 
-Prosta aplikacja WWW do przesyłania pojedynczych plików i całych katalogów na serwer. Aplikacja zapisuje przesłane dane na wolumenie źródłowym, kopiuje je na eksport NFS do katalogu bieżącego roku, weryfikuje każdy plik sumą SHA-256, a po potwierdzeniu transferu usuwa lokalne pliki paczki.
+Prosta aplikacja WWW do przesyłania pojedynczych plików i całych katalogów na serwer. Aplikacja zapisuje przesłane dane na wolumenie źródłowym, kopiuje je na eksport NFS do katalogu bieżącego roku, weryfikuje każdy plik sumą SHA-256, a po potwierdzeniu transferu usuwa lokalne pliki paczki. Osobny kontener PostgreSQL przechowuje pacjentów wyszukiwanych po PESEL-u.
 
 ## Uruchomienie w Dockerze
 
 Wymagane są Docker z wtyczką Compose, klient NFS na hoście Dockera oraz eksport NFS dostępny z tego hosta.
 
 1. Skopiuj `.env.example` do `.env`.
-2. Ustaw `APP_TOKEN`, `NFS_SERVER` i `NFS_EXPORT`. Token powinien być długi i losowy.
+2. Ustaw `APP_TOKEN`, `NFS_SERVER`, `NFS_EXPORT` i własne silne `POSTGRES_PASSWORD`. Token powinien być długi i losowy.
 3. Przygotuj eksport z prawem zapisu dla UID/GID `10001:10001`, pod którym działa aplikacja.
 4. Uruchom aplikację:
 
@@ -22,7 +22,7 @@ Compose montuje eksport NFS jako wolumen Dockera. Jeśli NFS jest chwilowo niedo
 ## Działanie kolejki
 
 - Przeglądarka wysyła pliki wraz z nazwami i ścieżkami względnymi, więc zachowuje się struktura katalogów. Nazwy plików źródłowych nie dostarczają metadanych pacjenta. Zwykłe pliki zachowują nazwy; PNG/JPEG i PDF są konwertowane do `.dcm`. Na NFS trafiają pod `NFS_EXPORT/<rok>/<ścieżka>`.
-- Po dodaniu paczki zawierającej PNG/JPEG lub PDF formularz prosi o imię, nazwisko, PESEL, rodzaj badania, stronę (OP/OL/OU), nazwę urządzenia i datę badania. Te dane dotyczą wszystkich konwertowanych plików z danej paczki. Data domyślnie pochodzi z czasu ostatniej modyfikacji pliku udostępnianego przez przeglądarkę i można ją zmienić. Przeglądarki nie udostępniają aplikacji WWW daty utworzenia pliku.
+- Po dodaniu plików formularz prosi o imię, nazwisko, PESEL, rodzaj badania, stronę (OP/OL/OU), nazwę urządzenia i datę badania. Przycisk „Szukaj” obok PESEL pobiera zapisane imię i nazwisko. Nowy pacjent jest zapisywany przy wysłaniu paczki; PESEL jest kluczem unikalnym, a istniejący wpis nie jest dodawany ponownie. Dane dotyczą wszystkich konwertowanych plików w paczce. Data domyślnie pochodzi z czasu ostatniej modyfikacji pliku udostępnianego przez przeglądarkę i można ją zmienić. Przeglądarki nie udostępniają aplikacji WWW daty utworzenia pliku.
 - Obrazy PNG/JPEG są konwertowane do DICOM Secondary Capture. PDF jest przesyłany jako DICOM Encapsulated PDF z oryginalnymi bajtami dokumentu osadzonymi w pliku `.dcm`; limit rozmiaru PDF wynosi 4 GiB (ograniczenie długości elementu DICOM). Patient Name jest zapisywane jako `Nazwisko^Imię`, PESEL jako Patient ID, nazwa urządzenia jako Modality, a rodzaj badania wraz ze stroną jako Study Description `(0008,1030)`.
 - Nazwa wynikowego DICOM zawiera imię, nazwisko, PESEL, datę badania, nazwę urządzenia i timestamp uploadu w formacie `YYYYMMDDTHHMMSSffffff`, np. `Imię_Nazwisko_<PESEL>_20261021_CT_20261021T102030123456.dcm`. Timestamp zapewnia unikalność nazw plików.
 - Study Date/Time, Content Date/Time oraz Acquisition DateTime w obiektach DICOM bazują na dacie badania z formularza i czasie odczytanym z daty modyfikacji pierwszego konwertowanego pliku w paczce.
@@ -44,6 +44,9 @@ Upuszczenie katalogu odczytuje jego zawartość rekurencyjnie i zachowuje nazwę
 | Zmienna | Znaczenie | Domyślna wartość |
 |---|---|---|
 | `APP_TOKEN` | Wspólny token dostępu do kolejki i uploadu | wymagany |
+| `POSTGRES_DB` | Nazwa bazy pacjentów | `fileloader` |
+| `POSTGRES_USER` | Użytkownik bazy pacjentów | `fileloader` |
+| `POSTGRES_PASSWORD` | Hasło użytkownika bazy danych | wymagane |
 | `NFS_SERVER` | Adres IP lub nazwa hosta serwera NFS | wymagany |
 | `NFS_EXPORT` | Eksport NFS, np. `/srv/nfs/incoming` | wymagany |
 | `NFS_VERSION` | Wersja protokołu NFS | `4.1` |
@@ -53,4 +56,4 @@ Upuszczenie katalogu odczytuje jego zawartość rekurencyjnie i zachowuje nazwę
 
 ## Dane i kopie zapasowe
 
-Wolumen `fileloader-data` przechowuje oczekujące paczki i historię transferów. Nie należy usuwać ani czyścić tego wolumenu, jeśli są w nim paczki oczekujące lub ponawiane. Dane docelowe znajdują się na eksporcie NFS.
+Wolumen `fileloader-data` przechowuje oczekujące paczki i historię transferów. Wolumen `fileloader-postgres-data` przechowuje bazę pacjentów. Nie należy usuwać ani czyścić tych wolumenów; utrata wolumenu PostgreSQL usunie zapamiętane dane pacjentów. Dane docelowe znajdują się na eksporcie NFS.

@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fileloader}
+      POSTGRES_USER: ${POSTGRES_USER:-fileloader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w pliku .env}
+    volumes:
+      - fileloader-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   fileloader:
     build: .
     container_name: fileloader
@@ -11,9 +26,17 @@ services:
       NFS_DIR: /mnt/nfs
       REQUIRE_NFS: "${REQUIRE_NFS:-true}"
       MAX_UPLOAD_BYTES: "${MAX_UPLOAD_BYTES:-53687091200}"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-fileloader}
+      DB_USER: ${POSTGRES_USER:-fileloader}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w pliku .env}
     volumes:
       - fileloader-data:/data
       - nfs-destination:/mnt/nfs
+    depends_on:
+      postgres:
+        condition: service_healthy
     cap_drop:
       - ALL
     read_only: true
@@ -28,6 +51,7 @@ services:
 
 volumes:
   fileloader-data:
+  fileloader-postgres-data:
   nfs-destination:
     driver: local
     driver_opts:

@@ -145,6 +145,13 @@ h2 { margin: 0; font: 700 19px Manrope, sans-serif; letter-spacing: -.45px; }
 .study-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 15px; }
 .study-fields .field-label { margin: 15px 0 7px; }
 .study-fields small { display: block; margin-top: 6px; color: #8996a9; font-size: 9px; line-height: 1.4; }
+.pesel-search-row { display: flex; align-items: stretch; gap: 7px; }
+.pesel-search-row .text-input { min-width: 0; flex: 1; }
+.pesel-search-row .button { min-height: 42px; padding: 0 13px; }
+.pesel-search-row .button:disabled { cursor: not-allowed; opacity: .5; }
+.patient-search-status:not(:empty) { margin-top: 7px; color: var(--blue); }
+.patient-search-status.found { color: var(--nfs-green); }
+.patient-search-status.error { color: var(--red); }
 .study-date-field { grid-column: 1 / -1; }
 .study-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; }
 .study-actions .button-primary { min-width: 125px; }
